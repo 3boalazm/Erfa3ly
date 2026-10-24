@@ -1,0 +1,271 @@
+export type Lang = "ar" | "en";
+export const LANG_COOKIE = "erfa3ly_lang";
+
+export function dirOf(lang: Lang): "rtl" | "ltr" {
+  return lang === "ar" ? "rtl" : "ltr";
+}
+
+const ar = {
+  appName: "ارفعلي",
+  appLatin: "Erfa3ly",
+  tagline: "بيتٌ لصفحات ومستندات الوكلاء",
+  docs: "كيف يعمل",
+  home: "الرئيسية",
+
+  heroTitle: "انشر ما أنتجه وكيلك في ثوانٍ",
+  heroSubtitle: "صفحة HTML أو مجلد بناء أو ZIP أو PDF — تحصل على رابط معاينة معزول وإصدارات ورابط مشاركة.",
+  dropTitle: "أفلت الملفات هنا",
+  dropSubtitle: "صفحة HTML، مجلد بناء، ملف ZIP، أو مستند PDF",
+  chooseFiles: "اختيار ملفات",
+  chooseFolder: "اختيار مجلد",
+  chooseZip: "اختيار ZIP",
+  uploading: "جارٍ الرفع",
+  processing: "جارٍ تجهيز المعاينة",
+  preparing: "جارٍ إنشاء جلسة الرفع",
+  publishing: "جارٍ النشر",
+  done: "تم النشر",
+  failed: "تعذّر الرفع",
+  retry: "إعادة المحاولة",
+  cancel: "إلغاء",
+
+  limitsHint: "الحد الأقصى للملف {file} ولكل عملية نشر {total}، وحتى {files} ملفاً.",
+  modeBlob: "تخزين: Vercel Blob (رفع مباشر من المتصفح)",
+  modeLocal: "تخزين: قرص محلي (بيئة تطوير)",
+  zipHint: "ملفات أكبر من 100 ميغابايت تُرفع مجزّأة تلقائياً.",
+  backendHint: "التطبيقات التي تحتاج خادماً أو قاعدة بيانات لا تعمل هنا: نحن نستضيف ملفات ثابتة فقط.",
+
+  yourWork: "أعمالك",
+  sitesCount: "{n} عمل",
+  emptyTitle: "لا شيء بعد",
+  emptyBody: "ارفع أول صفحة لتحصل على رابطها.",
+  open: "فتح",
+  copyLink: "نسخ الرابط",
+  copied: "نُسخ",
+  filesCount: "{n} ملف",
+  updatedAt: "آخر تحديث",
+  kindSingle: "صفحة",
+  kindFolder: "موقع ثابت",
+  kindDocument: "مستند",
+  needsRuntime: "يحتاج خادماً",
+
+  preview: "المعاينة",
+  details: "التفاصيل",
+  entryPoint: "نقطة الدخول",
+  versions: "الإصدارات",
+  sharing: "المشاركة",
+  current: "الحالي",
+  version: "إصدار",
+  restore: "استرجاع",
+  restored: "تم الاسترجاع",
+  source: "المصدر",
+  openRaw: "فتح الملف مباشرة",
+  widthNote: "المعاينة تعمل داخل إطار معزول بلا صلاحية الوصول إلى جلسة المنصة.",
+
+  shareTitle: "روابط المشاركة",
+  shareHint: "أي شخص يملك الرابط يستطيع الفتح — الرابط نفسه هو التصريح.",
+  newShare: "إنشاء رابط",
+  shareLabel: "وصف (اختياري)",
+  shareLabelPlaceholder: "مثلاً: للفريق",
+  noShares: "لا توجد روابط بعد.",
+  revoke: "إلغاء",
+  revoked: "ملغى",
+  linkCopied: "تم نسخ رابط المشاركة",
+  views: "{n} مشاهدة",
+  shareExpiry: "ينتهي بعد (أيام، اختياري)",
+
+  edit: "تعديل الصفحة",
+  save: "حفظ ونشر إصدار جديد",
+  saving: "جارٍ الحفظ",
+  editOnlySingle: "التعديل داخل المتصفح متاح للصفحات المفردة فقط.",
+  htmlSource: "شفرة HTML",
+
+  dangerZone: "منطقة الخطر",
+  deleteSite: "حذف الموقع",
+  deleteWarn: "يُخفى الموقع فوراً وتُحذف ملفاته بعد {days} يوماً.",
+  deleteConfirm: "تأكيد الحذف",
+  deleted: "تم الحذف",
+
+  sharedBy: "منشور عبر {app}",
+  shareGone: "هذا الرابط لم يعد صالحاً.",
+  shareGoneBody: "ربما أُلغي الرابط أو انتهت صلاحيته أو حُذف الموقع.",
+  backHome: "إلى الرئيسية",
+
+  notFound: "غير موجود",
+  notFoundBody: "لا يوجد شيء على هذا العنوان، أو أنه لا يخصّك.",
+  authTitle: "مساحة عمل بلا حساب",
+  authBody: "تُعرَّف مساحتك بكوكي في هذا المتصفح. امسح الكوكيز تفقد الوصول إلى لوحة التحكم، لكن روابط المشاركة تبقى تعمل.",
+  langSwitch: "English",
+  docsTitle: "كيف يعمل ارفعلي",
+  sec1Title: "١. الرفع",
+  sec1Body: "المتصفح يرفع الملفات مباشرة إلى Vercel Blob عبر توكن قصير العمر يصدره الخادم بعد فحص الحصّة والحدود. لا يمرّ الملف عبر دالة Vercel، لأن سقف جسم الدالة 4.5 ميغابايت.",
+  sec2Title: "٢. فحص ZIP",
+  sec2Body: "نفكّ الضغط بحدود صريحة: عدد الملفات، حجم كل ملف، والإجمالي — قبل فكّ الضغط لا بعده، ثم نحدّد نقطة الدخول (index.html) ونتجاهل __MACOSX.",
+  sec3Title: "٣. المعاينة المعزولة",
+  sec3Body: "كل صفحة تُقدَّم من /api/raw بترويسة CSP: sandbox، وداخل إطار بلا allow-same-origin. لا كوكيز، لا وصول إلى واجهة المنصة، ولا نطاق مشترك مع لوحة التحكم.",
+  sec4Title: "٤. المشاركة",
+  sec4Body: "روابط عشوائية 32 حرفاً، قابلة للإلغاء والانتهاء، ويمكن تثبيتها على إصدار محدد.",
+  limitsTitle: "الحدود في هذه النسخة",
+  needsRuntimeTitle: "ما لا نستطيع تشغيله",
+  needsRuntimeBody: "أي مشروع يحتاج Backend أو قاعدة بيانات أو أمر تشغيل: لا ننفّذ أوامر ولا نشغّل خوادم. ننشر الملفات الثابتة فقط، وننبّهك إن كان ZIP يبدو تطبيقاً كاملاً.",
+  langAr: "العربية",
+  titleLabel: "العنوان (اختياري)",
+  titlePlaceholder: "مثلاً: تقرير السوق — الربع الثالث",
+  pasteTitle: "أو الصق صفحة HTML",
+  pastePlaceholder: "<!doctype html>\n<h1>مرحباً</h1>",
+  pasteButton: "نشر الصفحة",
+  quotaOf: "{used} من {total} مستخدَمة",
+  reasonServer: "يحتوي على خادم تطبيق ({path}) — لن يعمل هنا.",
+  reasonBuild: "يحتاج خطوة بناء قبل النشر ({path}) — ارفع مجلد dist بعد البناء.",
+  reasonBackend: "يحتوي على ملفات backend ({path}) — المعاينة ستكون للملفات الثابتة فقط.",
+  fileList: "الملفات",
+  size: "الحجم",
+  trySample: "جرّب صفحة نموذجية",
+  versionsCount: "{n} إصدار",
+  publishFailed: "فشل النشر",
+  shareUrlLabel: "الرابط",
+  expiryNone: "بلا انتهاء",
+} as const;
+
+export type StringKey = keyof typeof ar;
+
+const en: Record<StringKey, string> = {
+  appName: "Erfa3ly",
+  appLatin: "Erfa3ly",
+  tagline: "A home for agent-made pages and documents",
+  docs: "How it works",
+  home: "Home",
+
+  heroTitle: "Publish what your agent produced, in seconds",
+  heroSubtitle: "An HTML page, a build folder, a ZIP or a PDF — you get a sandboxed preview link, versions and a share link.",
+  dropTitle: "Drop files here",
+  dropSubtitle: "HTML page, build folder, ZIP archive or PDF document",
+  chooseFiles: "Choose files",
+  chooseFolder: "Choose folder",
+  chooseZip: "Choose ZIP",
+  uploading: "Uploading",
+  processing: "Preparing preview",
+  preparing: "Opening upload session",
+  publishing: "Publishing",
+  done: "Published",
+  failed: "Upload failed",
+  retry: "Retry",
+  cancel: "Cancel",
+
+  limitsHint: "Up to {file} per file, {total} per publish, {files} files.",
+  modeBlob: "Storage: Vercel Blob (direct browser upload)",
+  modeLocal: "Storage: local disk (development)",
+  zipHint: "Files over 100 MB are uploaded in parts automatically.",
+  backendHint: "Apps that need a server or a database are not run here: static files only.",
+
+  yourWork: "Your work",
+  sitesCount: "{n} artifacts",
+  emptyTitle: "Nothing yet",
+  emptyBody: "Upload your first page to get a link.",
+  open: "Open",
+  copyLink: "Copy link",
+  copied: "Copied",
+  filesCount: "{n} files",
+  updatedAt: "Updated",
+  kindSingle: "Page",
+  kindFolder: "Static site",
+  kindDocument: "Document",
+  needsRuntime: "Needs a server",
+
+  preview: "Preview",
+  details: "Details",
+  entryPoint: "Entry point",
+  versions: "Versions",
+  sharing: "Sharing",
+  current: "Current",
+  version: "Version",
+  restore: "Restore",
+  restored: "Restored",
+  source: "Source",
+  openRaw: "Open file directly",
+  widthNote: "The preview runs in a sandboxed frame with no access to the platform session.",
+
+  shareTitle: "Share links",
+  shareHint: "Anyone with the link can open it — the link is the permission.",
+  newShare: "Create link",
+  shareLabel: "Label (optional)",
+  shareLabelPlaceholder: "e.g. for the team",
+  noShares: "No links yet.",
+  revoke: "Revoke",
+  revoked: "Revoked",
+  linkCopied: "Share link copied",
+  views: "{n} views",
+  shareExpiry: "Expires in (days, optional)",
+
+  edit: "Edit page",
+  save: "Save as a new version",
+  saving: "Saving",
+  editOnlySingle: "In-browser editing is available for single-page artifacts only.",
+  htmlSource: "HTML source",
+
+  dangerZone: "Danger zone",
+  deleteSite: "Delete site",
+  deleteWarn: "The site is hidden immediately; its files are purged after {days} days.",
+  deleteConfirm: "Confirm delete",
+  deleted: "Deleted",
+
+  sharedBy: "Published with {app}",
+  shareGone: "This link is no longer valid.",
+  shareGoneBody: "It may have been revoked, expired, or the site was deleted.",
+  backHome: "Back home",
+
+  notFound: "Not found",
+  notFoundBody: "Nothing lives at this address, or it is not yours.",
+  authTitle: "An accountless workspace",
+  authBody: "Your workspace is a cookie in this browser. Clearing cookies loses the dashboard, but share links keep working.",
+  langSwitch: "العربية",
+  docsTitle: "How Erfa3ly works",
+  sec1Title: "1. Upload",
+  sec1Body: "The browser uploads straight to Vercel Blob with a short-lived token the server issues after checking quota and limits. Bytes never pass through a Vercel Function, whose body cap is 4.5 MB.",
+  sec2Title: "2. ZIP inspection",
+  sec2Body: "Archives are unpacked with explicit limits on file count, per-file size and total size — checked before inflation — then the entry point is detected and __MACOSX junk ignored.",
+  sec3Title: "3. Sandboxed preview",
+  sec3Body: "Every page is served from /api/raw with a CSP: sandbox header, inside a frame without allow-same-origin. No cookies, no platform API, no shared origin with the dashboard.",
+  sec4Title: "4. Sharing",
+  sec4Body: "Random 32-character links that can be revoked, expired, or pinned to a specific version.",
+  limitsTitle: "Limits in this build",
+  needsRuntimeTitle: "What we do not run",
+  needsRuntimeBody: "Anything requiring a backend, a database or a start command: we never execute commands or start servers. Static files only — and we warn you when a ZIP looks like a full app.",
+  langAr: "العربية",
+  titleLabel: "Title (optional)",
+  titlePlaceholder: "e.g. Market report — Q3",
+  pasteTitle: "Or paste an HTML page",
+  pastePlaceholder: "<!doctype html>\n<h1>Hello</h1>",
+  pasteButton: "Publish page",
+  quotaOf: "{used} of {total} used",
+  reasonServer: "Contains an application server ({path}) — it will not run here.",
+  reasonBuild: "Needs a build step before publishing ({path}) — upload the built dist folder instead.",
+  reasonBackend: "Contains backend files ({path}) — the preview will only serve static files.",
+  fileList: "Files",
+  size: "Size",
+  trySample: "Try a sample page",
+  versionsCount: "{n} versions",
+  publishFailed: "Publish failed",
+  shareUrlLabel: "Link",
+  expiryNone: "No expiry",
+};
+
+export const dictionaries: Record<Lang, Record<StringKey, string>> = { ar, en };
+
+export function t(lang: Lang, key: StringKey, vars?: Record<string, string | number>): string {
+  let value: string = dictionaries[lang][key] ?? key;
+  if (vars) {
+    for (const [name, replacement] of Object.entries(vars)) {
+      value = value.replaceAll(`{${name}}`, String(replacement));
+    }
+  }
+  return value;
+}
+
+/** 24 MB → "24 MB", so both locales say the same thing. */
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const value = bytes / 1024 ** exponent;
+  return `${value >= 10 || exponent === 0 ? Math.round(value) : value.toFixed(1)} ${units[exponent]}`;
+}

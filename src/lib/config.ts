@@ -32,7 +32,33 @@ export const blobToken = (process.env.BLOB_READ_WRITE_TOKEN || "").trim();
 /** Which storage driver this process uses. Chosen by the presence of a Blob token. */
 export const storageDriver: "blob" | "local" = blobToken ? "blob" : "local";
 
-export const databaseUrl = (process.env.DATABASE_URL || "").trim();
+/**
+ * Postgres connection string.
+ *
+ * `DATABASE_URL` is the name this project documents, but the Vercel/Neon
+ * integrations inject different names depending on how the store was created
+ * (`POSTGRES_URL` for "Vercel Postgres", `DATABASE_URL_UNPOOLED` for a direct
+ * connection, `POSTGRES_PRISMA_URL` for Prisma). Accepting them in order of
+ * preference means a deployment does not fail on a naming detail — and the
+ * pooled names win, because every serverless instance keeps its own pool and an
+ * unpooled string runs out of connections first.
+ */
+function pickDatabaseUrl(): string {
+  const names = ["DATABASE_URL", "POSTGRES_URL", "POSTGRES_PRISMA_URL", "DATABASE_URL_UNPOOLED"];
+  for (const name of names) {
+    const value = (process.env[name] || "").trim();
+    if (value) return value;
+  }
+  return "";
+}
+
+export const databaseUrl = pickDatabaseUrl();
+
+/** Which variable the connection string came from — for the boot log, never the value. */
+export function databaseUrlSource(): string | null {
+  const names = ["DATABASE_URL", "POSTGRES_URL", "POSTGRES_PRISMA_URL", "DATABASE_URL_UNPOOLED"];
+  return names.find((name) => (process.env[name] || "").trim()) ?? null;
+}
 
 /**
  * Vercel sets VERCEL=1 and has no writable disk that survives a request. Local

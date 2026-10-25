@@ -108,6 +108,7 @@ export function Uploader({ lang, driver, limits, usedBytes, problems }: Uploader
           sessionId?: string;
           prefix?: string;
           driver?: "local" | "blob";
+          uploadMode?: "local" | "blob-token" | "blob-presigned";
           fileUrl?: string;
           error?: string;
         };
@@ -120,17 +121,22 @@ export function Uploader({ lang, driver, limits, usedBytes, problems }: Uploader
           const onProgress = (loaded: number) => {
             setProgress({ done: done + Math.min(loaded, item.size), total });
           };
-          if (session.driver === "blob") {
-            const { upload } = await import("@vercel/blob/client");
-            await upload(`${session.prefix}/${item.path}`, item.file, {
-              access: "public",
-              handleUploadUrl: "/api/blob/upload",
+          if (session.uploadMode === "blob-token" || session.uploadMode === "blob-presigned") {
+            const client = await import("@vercel/blob/client");
+            const options = {
+              access: "public" as const,
+              // Where the server decides whether and where this upload may land.
+              handleUploadUrl:
+                session.uploadMode === "blob-token" ? "/api/blob/upload" : "/api/blob/upload-presigned",
               clientPayload: JSON.stringify({ sessionId: session.sessionId }),
               // Above 100 MB the SDK switches to multipart: parts retry on their
               // own instead of the whole file starting over.
               multipart: item.size > 100 * 1024 * 1024,
-              onUploadProgress: (event) => onProgress(event.loaded),
-            });
+              onUploadProgress: (event: { loaded: number }) => onProgress(event.loaded),
+            };
+            await (session.uploadMode === "blob-token"
+              ? client.upload(`${session.prefix}/${item.path}`, item.file, options)
+              : client.uploadPresigned(`${session.prefix}/${item.path}`, item.file, options));
           } else {
             await putWithProgress(
               `${session.fileUrl}?path=${encodeURIComponent(item.path)}`,

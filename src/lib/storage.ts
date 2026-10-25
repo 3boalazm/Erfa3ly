@@ -1,5 +1,5 @@
 import "server-only";
-import { blobToken, storageDriver } from "@/lib/config";
+import { blobAuth, blobStoreId, blobToken, storageDriver } from "@/lib/config";
 import { LocalStorage } from "@/lib/storage-local";
 import { BlobStorage } from "@/lib/storage-blob";
 import { StorageError, type Storage } from "@/lib/storage-types";
@@ -22,8 +22,11 @@ const globalForStorage = globalThis as unknown as { __erfa3lyStorage?: Storage }
 export function getStorage(): Storage {
   if (!globalForStorage.__erfa3lyStorage) {
     if (storageDriver === "blob") {
-      if (!blobToken) throw new StorageError("BLOB_READ_WRITE_TOKEN is missing");
-      globalForStorage.__erfa3lyStorage = new BlobStorage(blobToken);
+      // A token wins when present; otherwise the SDK authenticates with the
+      // platform-issued OIDC token and the store id (see config.blobAuth).
+      globalForStorage.__erfa3lyStorage = new BlobStorage(
+        blobAuth === "token" ? { token: blobToken } : { storeId: blobStoreId },
+      );
     } else {
       globalForStorage.__erfa3lyStorage = new LocalStorage();
     }

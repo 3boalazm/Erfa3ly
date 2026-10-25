@@ -25,11 +25,24 @@ import { tooLarge, type ByteRange, type Storage, type StoredBody, type StoredObj
  */
 export class BlobStorage implements Storage {
   readonly driver = "blob" as const;
+  private readonly token?: string;
+  private readonly storeId?: string;
 
-  constructor(private readonly token: string) {}
+  /**
+   * Authenticate with a read-write token, or — when the project was connected to a
+   * store through OIDC — with just the store id: the SDK then signs requests with
+   * `VERCEL_OIDC_TOKEN`, which Vercel injects into every invocation.
+   */
+  constructor(auth: { token?: string; storeId?: string }) {
+    this.token = auth.token || undefined;
+    this.storeId = auth.storeId || undefined;
+    if (!this.token && !this.storeId) throw new Error("BlobStorage needs a token or a store id");
+  }
 
   private options() {
-    return { token: this.token, access: "public" as const };
+    return this.token
+      ? { token: this.token, access: "public" as const }
+      : { storeId: this.storeId, access: "public" as const };
   }
 
   async putObject(key: string, bytes: Uint8Array, contentType: string): Promise<void> {
@@ -109,7 +122,7 @@ export class BlobStorage implements Storage {
 
   async headObject(key: string): Promise<{ size: number; contentType: string } | null> {
     try {
-      const result = await head(safeRelativePath(key), { token: this.token });
+      const result = await head(safeRelativePath(key), this.options());
       return { size: result.size, contentType: result.contentType };
     } catch {
       return null;
@@ -117,14 +130,14 @@ export class BlobStorage implements Storage {
   }
 
   async removeObject(key: string): Promise<void> {
-    await del(safeRelativePath(key), { token: this.token });
+    await del(safeRelativePath(key), this.options());
   }
 
   async listObjects(prefix: string): Promise<StoredObject[]> {
     const out: StoredObject[] = [];
     let cursor: string | undefined;
     do {
-      const page = await list({ prefix: safeRelativePath(prefix), cursor, token: this.token, limit: 1000 });
+      const page = await list({ prefix: safeRelativePath(prefix), cursor, ...this.options(), limit: 1000 });
       for (const blob of page.blobs) out.push({ key: blob.pathname, size: blob.size });
       cursor = page.hasMore ? page.cursor : undefined;
     } while (cursor);
@@ -135,7 +148,7 @@ export class BlobStorage implements Storage {
     const objects = await this.listObjects(prefix);
     // del() takes up to 1000 URLs per call.
     for (let i = 0; i < objects.length; i += 1000) {
-      await del(objects.slice(i, i + 1000).map((object) => object.key), { token: this.token });
+      await del(objects.slice(i, i + 1000).map((object) => object.key), this.options());
     }
     return objects.length;
   }

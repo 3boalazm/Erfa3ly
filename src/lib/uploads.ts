@@ -1,6 +1,6 @@
 import "server-only";
 import { asDate, asNumber, exec, one, rows, type Row } from "@/lib/db";
-import { assertUsableRuntime, limits, storageDriver } from "@/lib/config";
+import { assertUsableRuntime, blobUploadMode, limits, storageDriver } from "@/lib/config";
 import { createId } from "@/lib/ids";
 import { ApiError, badRequest, conflict, notFound } from "@/lib/http";
 import { isJunkPath, safeRelativePath, versionPrefix } from "@/lib/paths";
@@ -104,9 +104,18 @@ function validateTargets(kind: UploadKind, raw: unknown): UploadTarget[] {
 
 export interface OpenSessionResult extends UploadSession {
   driver: "local" | "blob";
+  /**
+   * How the browser should move bytes:
+   *  - `local`         — streamed PUT to /api/uploads/<id>/files
+   *  - `blob-token`    — @vercel/blob/client `upload()` with a read-write token
+   *  - `blob-presigned`— `uploadPresigned()` with OIDC (store connected without a token)
+   */
+  uploadMode: "local" | "blob-token" | "blob-presigned";
   /** Object-key prefix the client must write under. */
   prefix: string;
 }
+
+
 
 export async function createUploadSession(input: {
   ownerId: string;
@@ -145,7 +154,7 @@ export async function createUploadSession(input: {
   const row = await one<SessionRow>(`select * from upload_sessions where id = $1`, [sessionId]);
   if (!row) throw new ApiError(500, "session vanished");
   const session = toSession(row);
-  return { ...session, driver: storageDriver, prefix: versionPrefix(siteId, versionId) };
+  return { ...session, driver: storageDriver, uploadMode: blobUploadMode, prefix: versionPrefix(siteId, versionId) };
 }
 
 export async function getOpenSession(sessionId: string, ownerId: string): Promise<OpenSessionResult> {
@@ -155,7 +164,39 @@ export async function getOpenSession(sessionId: string, ownerId: string): Promis
   );
   if (!row) throw notFound("upload session not found or expired");
   const session = toSession(row);
-  return { ...session, driver: storageDriver, prefix: versionPrefix(session.siteId, session.versionId) };
+  return { ...session, driver: storageDriver, uploadMode: blobUploadMode, prefix: versionPrefix(session.siteId, session.versionId) };
+}
+
+/**
+ * Authorise one blob pathname against an open session.
+ *
+ * Both token routes (read-write token and OIDC presigned) call this, so the
+ * security rule exists once: a token may only write inside the session's own
+ * prefix, for a file that was declared when the session opened (which is when
+ * quota, count and per-file caps were checked).
+ */
+export async function authorizeBlobPathname(input: {
+  pathname: string;
+  clientPayload: string | null;
+  ownerId: string;
+}): Promise<{ session: OpenSessionResult; relpath: string; maxBytes: number }> {
+  let sessionId = "";
+  try {
+    sessionId = String((JSON.parse(input.clientPayload ?? "{}") as { sessionId?: string }).sessionId ?? "");
+  } catch {
+    throw badRequest("invalid client payload");
+  }
+  const session = await getOpenSession(sessionId, input.ownerId);
+  const prefix = `${session.prefix}/`;
+  if (!input.pathname.startsWith(prefix)) throw badRequest("pathname outside this upload session");
+  const relpath = safeRelativePath(input.pathname.slice(prefix.length));
+  const declared = session.expectedFiles.find((target) => target.path === relpath);
+  if (!declared) throw badRequest(`file was not declared in this session: ${relpath}`);
+  return {
+    session,
+    relpath,
+    maxBytes: Math.min(limits.maxFileBytes, Math.max(declared.size, 1024)),
+  };
 }
 
 /**

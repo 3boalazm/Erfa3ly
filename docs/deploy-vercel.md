@@ -126,6 +126,28 @@ npm run dev               # http://localhost:3000
 
 ## ٧. استكشاف الأعطال
 
+### لا يوجد `BLOB_READ_WRITE_TOKEN` لكن المتجر مربوط
+
+هذا طبيعي في نمط الربط الأحدث: Vercel يحقن **`BLOB_STORE_ID`** (وقد ترى أيضاً
+`BLOB_WEBHOOK_PUBLIC_KEY`) ويعطيك في كل تشغيل توكن OIDC قصير العمر
+(`VERCEL_OIDC_TOKEN`). النسخة الحالية تدعم الوضعين:
+
+| ما يوجد في البيئة | المصادقة | رفع المتصفح |
+| --- | --- | --- |
+| `BLOB_READ_WRITE_TOKEN` | توكن دائم | `upload()` → `/api/blob/upload` |
+| `BLOB_STORE_ID` فقط (على Vercel) | OIDC مؤقت | `uploadPresigned()` → `/api/blob/upload-presigned` |
+
+لا تحتاج إلى توليد توكن يدوياً. المطلوب فقط **إعادة نشر (Redeploy)** بعد ربط المتجر،
+لأن متغيرات البيئة تُقرأ عند البناء/التشغيل. تحقّق بـ `/api/health`:
+
+```json
+{ "storage": "blob", "blobAuth": "oidc", "blobStoreIdPresent": true, "problems": [] }
+```
+
+إن ظهر `"blobAuth": "none"` مع `"blobStoreIdPresent": true` فالربط لم يُطبَّق على هذا
+النشر بعد — أعد النشر؛ وإن استمر، أضف `BLOB_READ_WRITE_TOKEN` من صفحة المتجر
+(Store → `.env` / Connect Project).
+
 ### `413 FUNCTION_PAYLOAD_TOO_LARGE` عند رفع الملفات
 
 هذا يعني أن المتصفح رفع إلى `/api/uploads/<id>/files` — أي أن الخادم أعاد `driver: "local"`، أي أن **`BLOB_READ_WRITE_TOKEN` غير موجود في بيئة النشر**. على Vercel لا قرص دائم، وسقف جسم الدالة 4.5 MB، لذلك رفض Vercel الطلب بعد أن أرسل المتصفح كامل الملف.

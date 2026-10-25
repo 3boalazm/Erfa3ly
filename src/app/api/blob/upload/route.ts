@@ -1,32 +1,33 @@
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
-import { limits } from "@/lib/config";
-import { assertSameOrigin, errorResponse, jsonNoStore } from "@/lib/http";
+import { assertSameOrigin, configurationResponse, errorResponse, jsonNoStore } from "@/lib/http";
 import { readOwnerId } from "@/lib/auth";
-import { getOpenSession } from "@/lib/uploads";
-import { safeRelativePath } from "@/lib/paths";
+import { authorizeBlobPathname } from "@/lib/uploads";
 import { recordEvent } from "@/lib/rate-limit";
+import { blobAuth } from "@/lib/config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Token exchange for browser → Blob uploads.
+ * Token exchange for browser → Blob uploads, **read-write-token mode**.
  *
- * The client sends `pathname` + `clientPayload`; we authorise it against the
- * open session this browser already owns:
- *
- *   - the pathname must sit under this session's prefix (`sites/<site>/<version>/`),
- *     so a token can never be replayed to overwrite somebody else's artifact;
- *   - the file must have been declared when the session opened, so the quota and
- *     size limits were checked against it;
- *   - `maximumSizeInBytes` repeats the per-file cap, because the token is what
- *     the storage service enforces.
- *
- * `access: "public"` is set on the client and documented in storage-blob.ts.
+ * Used when the project has `BLOB_READ_WRITE_TOKEN`. Stores connected through
+ * OIDC have no token and must use `/api/blob/upload-presigned` instead; this
+ * route says so rather than failing with an opaque SDK error.
  */
 export async function POST(request: Request) {
+  const blocked = configurationResponse();
+  if (blocked) return blocked;
   try {
     assertSameOrigin(request);
+    // Which flow this deployment uses comes before who is asking: an operator
+    // hitting the wrong route should learn that, not get a 401.
+    if (blobAuth !== "token") {
+      return jsonNoStore(
+        { error: "this deployment authenticates to Blob with OIDC; use /api/blob/upload-presigned", code: "use_presigned" },
+        { status: 409 },
+      );
+    }
     const ownerId = await readOwnerId();
     if (!ownerId) return jsonNoStore({ error: "no workspace cookie" }, { status: 401 });
 
@@ -35,25 +36,14 @@ export async function POST(request: Request) {
       body,
       request,
       onBeforeGenerateToken: async (pathname, clientPayload) => {
-        let sessionId = "";
-        try {
-          sessionId = String((JSON.parse(clientPayload ?? "{}") as { sessionId?: string }).sessionId ?? "");
-        } catch {
-          throw new Error("invalid client payload");
-        }
-        const session = await getOpenSession(sessionId, ownerId);
-        const prefix = `${session.prefix}/`;
-        if (!pathname.startsWith(prefix)) throw new Error("pathname outside this upload session");
-        const relpath = safeRelativePath(pathname.slice(prefix.length));
-        const declared = session.expectedFiles.find((target) => target.path === relpath);
-        if (!declared) throw new Error(`file was not declared in this session: ${relpath}`);
-
+        const { relpath, maxBytes } = await authorizeBlobPathname({ pathname, clientPayload, ownerId });
+        void relpath;
         return {
           addRandomSuffix: false,
           allowOverwrite: true,
           cacheControlMaxAge: 31_536_000,
-          maximumSizeInBytes: Math.min(limits.maxFileBytes, Math.max(declared.size, 1024)),
-          tokenPayload: JSON.stringify({ sessionId: session.id }),
+          maximumSizeInBytes: maxBytes,
+          tokenPayload: JSON.stringify({ ownerId }),
         };
       },
       onUploadCompleted: async ({ blob }) => {

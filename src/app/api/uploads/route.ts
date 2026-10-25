@@ -36,6 +36,7 @@ export async function POST(request: Request) {
     return jsonNoStore({
       sessionId: session.id,
       driver: session.driver,
+      uploadMode: session.uploadMode,
       prefix: session.prefix,
       siteId: session.siteId,
       versionId: session.versionId,

@@ -61,6 +61,20 @@ export function errorResponse(error: unknown): Response {
   if (name === "UnsafePathError") {
     return Response.json({ error: "unsafe path" }, { status: 400 });
   }
+  // An unreachable or misconfigured database is an operator problem, not a bug:
+  // say so in one actionable sentence, and never echo the connection string.
+  const text = error instanceof Error ? `${error.message} ${(error as { code?: string }).code ?? ""}` : "";
+  if (/ECONNREFUSED|ENOTFOUND|ETIMEDOUT|password authentication failed|does not exist|too many connections|timeout exceeded when trying to connect|Connection terminated|self.signed certificate/i.test(text)) {
+    console.error("[erfa3ly] database unavailable", error);
+    return Response.json(
+      {
+        error:
+          "cannot reach Postgres: check DATABASE_URL (or POSTGRES_URL) and that the database accepts connections from Vercel (pooled host, SSL, IP allow-list).",
+        code: "database_unavailable",
+      },
+      { status: 503 },
+    );
+  }
   // Storage and database messages can contain internals: log them, say nothing.
   console.error("[erfa3ly] unhandled error", error);
   return Response.json({ error: "internal error" }, { status: 500 });

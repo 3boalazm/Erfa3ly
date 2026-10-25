@@ -1,4 +1,4 @@
-import { databaseUrl, databaseUrlSource, isVercel, runtimeProblems, storageDriver } from "@/lib/config";
+import { blobAuth, blobStoreId, databaseUrl, databaseUrlSource, isVercel, runtimeProblems, storageDriver } from "@/lib/config";
 import { jsonNoStore } from "@/lib/http";
 
 export const runtime = "nodejs";
@@ -18,7 +18,8 @@ export async function GET() {
       storage: storageDriver,
       database: databaseUrl ? "postgres" : isVercel ? "missing" : "pglite",
       databaseVariable: databaseUrlSource(),
-      blobTokenPresent: storageDriver === "blob",
+      blobAuth,
+      blobStoreIdPresent: Boolean(blobStoreId),
       problems,
     },
     { status: problems.length === 0 ? 200 : 503 },

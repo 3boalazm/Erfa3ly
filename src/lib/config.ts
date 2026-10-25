@@ -28,9 +28,41 @@ export const limits = {
 export const dataDir = path.resolve(process.env.ERFA3LY_DATA_DIR || "./.erfa3ly-data");
 
 export const blobToken = (process.env.BLOB_READ_WRITE_TOKEN || "").trim();
+export const blobStoreId = (process.env.BLOB_STORE_ID || "").trim();
+const oidcToken = (process.env.VERCEL_OIDC_TOKEN || "").trim();
 
-/** Which storage driver this process uses. Chosen by the presence of a Blob token. */
-export const storageDriver: "blob" | "local" = blobToken ? "blob" : "local";
+/**
+ * How this deployment authenticates to Vercel Blob.
+ *
+ * Two modes exist, and confusing them is a real deployment trap:
+ *
+ *  - `token`  — a `BLOB_READ_WRITE_TOKEN` (what "Connect Store" used to inject,
+ *               and what local development uses).
+ *  - `oidc`   — the newer connection style: Vercel injects `BLOB_STORE_ID` and
+ *               issues short-lived OIDC tokens at runtime (`VERCEL_OIDC_TOKEN`).
+ *               Nothing else is needed; requiring a token here made a correctly
+ *               connected production deployment look unconfigured.
+ *
+ * `oidc` is chosen only when the store id is present *and* we are on Vercel (or an
+ * OIDC token was pulled locally), otherwise `npm run dev` would try to reach a
+ * store it cannot authenticate to.
+ */
+export const blobAuth: "token" | "oidc" | "none" = blobToken
+  ? "token"
+  : blobStoreId && (oidcToken || process.env.VERCEL)
+    ? "oidc"
+    : "none";
+
+/** Which storage driver this process uses. */
+export const storageDriver: "blob" | "local" = blobAuth === "none" ? "local" : "blob";
+
+/**
+ * How a browser should move bytes for this deployment.
+ * `blob-presigned` is the OIDC path: the server issues a scoped signed token and
+ * the browser uploads through a presigned URL (`uploadPresigned`).
+ */
+export const blobUploadMode: "local" | "blob-token" | "blob-presigned" =
+  storageDriver === "local" ? "local" : blobAuth === "token" ? "blob-token" : "blob-presigned";
 
 /**
  * Postgres connection string.
@@ -82,7 +114,9 @@ export function runtimeProblems(): string[] {
   if (isVercel) {
     if (storageDriver === "local") {
       problems.push(
-        "BLOB_READ_WRITE_TOKEN is missing: a Vercel Function cannot receive more than 4.5 MB and has no durable disk, so uploads must go to Vercel Blob. Create a Blob store (Vercel → Storage → Blob) and redeploy.",
+        blobStoreId
+          ? "A Blob store is connected (BLOB_STORE_ID is set) but this deployment has no way to authenticate to it: VERCEL_OIDC_TOKEN is not available at runtime. Redeploy the project so Vercel injects a fresh OIDC token, or add BLOB_READ_WRITE_TOKEN from the store's settings."
+          : "No Blob store is connected: BLOB_READ_WRITE_TOKEN / BLOB_STORE_ID are both missing. A Vercel Function cannot receive more than 4.5 MB and has no durable disk, so uploads must go to Vercel Blob (Vercel → Storage → Blob → connect to this project, then redeploy).",
       );
     }
     if (!databaseUrl) {

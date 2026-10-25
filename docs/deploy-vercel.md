@@ -123,3 +123,48 @@ npm run dev               # http://localhost:3000
 - معاينة Office (يحتاج Gotenberg خارج Vercel: خدمة منفصلة).
 - بحث نصي كامل داخل المستندات (استخراج نص PDF).
 - نقل الأصول الثقيلة إلى نطاق معاينة منفصل مع ترويسات عزل مكافئة.
+
+## ٧. استكشاف الأعطال
+
+### `413 FUNCTION_PAYLOAD_TOO_LARGE` عند رفع الملفات
+
+هذا يعني أن المتصفح رفع إلى `/api/uploads/<id>/files` — أي أن الخادم أعاد `driver: "local"`، أي أن **`BLOB_READ_WRITE_TOKEN` غير موجود في بيئة النشر**. على Vercel لا قرص دائم، وسقف جسم الدالة 4.5 MB، لذلك رفض Vercel الطلب بعد أن أرسل المتصفح كامل الملف.
+
+الحل:
+
+1. Vercel → **Storage → Create → Blob** ثم اربطه بالمشروع (يضيف المتغير تلقائياً).
+2. تأكد من ظهوره في **Settings → Environment Variables** لبيئة **Production**.
+3. **Deployments → ⋯ → Redeploy** — إضافة متغير لا تؤثر على نشر قائم.
+
+النسخة الحالية لا تنتظر حدوث 413: `/api/uploads` يعيد **503** مع قائمة النواقص قبل أن يبدأ الرفع، والواجهة تعرض شريط «الرفع معطّل حتى يكتمل الإعداد» وتعطّل أزرار الرفع.
+
+### شريط «إعداد النشر ناقص» في الصفحة
+
+اقرأ الرسالة نفسها؛ تذكر اسم المتغير المفقود بدقة (`BLOB_READ_WRITE_TOKEN` أو `DATABASE_URL`/`POSTGRES_URL`).
+
+### فحص سريع بعد النشر
+
+```bash
+curl -s https://<نطاقك>/api/health | jq
+# {
+#   "ok": true,
+#   "vercel": true,
+#   "storage": "blob",          ← لو ظهر "local" فتوكن Blob ناقص
+#   "database": "postgres",     ← لو ظهر "missing" فرابط القاعدة ناقص
+#   "databaseVariable": "DATABASE_URL",
+#   "problems": []
+# }
+```
+
+`503` من هذا المسار يعني أن النشر غير مكتمل الإعداد، والرسائل تشرح السبب. لا يعرض المسار أي قيمة سرية، فقط أسماء المتغيرات الموجودة.
+
+### أخطاء أخرى متوقعة
+
+| الرسالة | السبب | الحل |
+| --- | --- | --- |
+| `unsafe relative path` / `blocked path segment` | ZIP يحتوي `..` أو `.git` أو `node_modules` | أعد ضغط المشروع دون مجلداته الداخلية |
+| `the archive has no index.html…` | ZIP بلا صفحة دخول | ارفع مجلد البناء (`dist/`) أو أضف `index.html` |
+| `zip rejected: entry too large` | ملف داخل ZIP يتجاوز `ERFA3LY_MAX_FILE_BYTES` | ارفع الملف وحده أو ارفع الحد |
+| `quota exceeded` | تجاوزت مساحة المالك | احذف عملاً قديماً (تُفرَّغ المساحة بعد مدة الاحتفاظ) أو ارفع `ERFA3LY_QUOTA_BYTES` |
+| `cross-origin write refused` | `Origin` لا يطابق النشر | اضبط `ERFA3LY_PUBLIC_URL` أو أضف الأصل في `ERFA3LY_ALLOWED_ORIGINS` |
+| `503 CRON_SECRET is not configured` | مهمة التنظيف معطّلة | اضبط `CRON_SECRET` |

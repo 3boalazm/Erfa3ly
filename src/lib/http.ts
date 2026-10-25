@@ -1,5 +1,5 @@
 import "server-only";
-import { allowedOrigins, publicOrigin } from "@/lib/config";
+import { allowedOrigins, publicOrigin, runtimeProblems } from "@/lib/config";
 
 /** Errors that are safe to show a visitor, with the status they map to. */
 export class ApiError extends Error {
@@ -64,6 +64,17 @@ export function errorResponse(error: unknown): Response {
   // Storage and database messages can contain internals: log them, say nothing.
   console.error("[erfa3ly] unhandled error", error);
   return Response.json({ error: "internal error" }, { status: 500 });
+}
+
+/**
+ * A deployment whose storage or database is not configured cannot accept writes.
+ * Answer 503 with the reasons *before* doing any work — a bare 500 here is how a
+ * missing token turns into "internal error" and an hour of guessing.
+ */
+export function configurationResponse(): Response | null {
+  const problems = runtimeProblems();
+  if (problems.length === 0) return null;
+  return jsonNoStore({ error: problems.join(" "), code: "config_incomplete", problems }, { status: 503 });
 }
 
 export function jsonNoStore(body: unknown, init?: ResponseInit): Response {

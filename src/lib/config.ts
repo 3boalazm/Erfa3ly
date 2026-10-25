@@ -67,18 +67,36 @@ export function databaseUrlSource(): string | null {
  */
 export const isVercel = Boolean(process.env.VERCEL);
 
+/**
+ * Everything wrong with this deployment's configuration, in the operator's terms.
+ *
+ * This exists because of one specific, expensive mistake: a production deploy
+ * without `BLOB_READ_WRITE_TOKEN` silently fell back to the local-disk driver, the
+ * browser then uploaded to `/api/uploads/<id>/files`, and Vercel answered
+ * `413 FUNCTION_PAYLOAD_TOO_LARGE` — after the user had waited for a 40 MB
+ * upload. The upload path is now refused at session-open with this list, and the
+ * dashboard shows it before anyone picks a file.
+ */
+export function runtimeProblems(): string[] {
+  const problems: string[] = [];
+  if (isVercel) {
+    if (storageDriver === "local") {
+      problems.push(
+        "BLOB_READ_WRITE_TOKEN is missing: a Vercel Function cannot receive more than 4.5 MB and has no durable disk, so uploads must go to Vercel Blob. Create a Blob store (Vercel → Storage → Blob) and redeploy.",
+      );
+    }
+    if (!databaseUrl) {
+      problems.push(
+        "No Postgres connection string: set DATABASE_URL (or POSTGRES_URL from the Vercel/Neon integration) and redeploy.",
+      );
+    }
+  }
+  return problems;
+}
+
 export function assertUsableRuntime(): void {
-  if (!isVercel) return;
-  if (storageDriver === "local") {
-    throw new Error(
-      "BLOB_READ_WRITE_TOKEN is missing: on Vercel there is no durable disk, so artifacts must go to Vercel Blob. Connect a Blob store to the project.",
-    );
-  }
-  if (!databaseUrl) {
-    throw new Error(
-      "DATABASE_URL is missing: metadata needs a Postgres database (Neon, Supabase, ...). The in-process PGlite fallback is for local development only.",
-    );
-  }
+  const problems = runtimeProblems();
+  if (problems.length > 0) throw new Error(problems.join(" "));
 }
 
 /** Public origin, when the deployment knows it (share links, absolute URLs). */

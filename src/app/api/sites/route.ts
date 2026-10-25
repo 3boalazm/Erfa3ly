@@ -1,4 +1,4 @@
-import { assertSameOrigin, badRequest, errorResponse, jsonNoStore } from "@/lib/http";
+import { assertSameOrigin, badRequest, configurationResponse, errorResponse, jsonNoStore } from "@/lib/http";
 import { ensureOwnerId } from "@/lib/auth";
 import { publishHtml } from "@/lib/sites";
 import { consumeWriteBudget } from "@/lib/rate-limit";
@@ -15,6 +15,8 @@ export const dynamic = "force-dynamic";
  * uploads use.
  */
 export async function POST(request: Request) {
+  const blocked = configurationResponse();
+  if (blocked) return blocked;
   try {
     assertSameOrigin(request);
     const ownerId = await ensureOwnerId();

@@ -1,4 +1,4 @@
-import { assertSameOrigin, badRequest, conflict, errorResponse, jsonNoStore } from "@/lib/http";
+import { assertSameOrigin, badRequest, configurationResponse, conflict, errorResponse, jsonNoStore } from "@/lib/http";
 import { readOwnerId } from "@/lib/auth";
 import { getSiteDetail, publishHtml } from "@/lib/sites";
 import { consumeWriteBudget } from "@/lib/rate-limit";
@@ -9,6 +9,8 @@ export const dynamic = "force-dynamic";
 
 /** Save an edited page as a new immutable version. Old versions stay readable. */
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
+  const blocked = configurationResponse();
+  if (blocked) return blocked;
   try {
     assertSameOrigin(request);
     const ownerId = await readOwnerId();

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getLang } from "@/lib/i18n-server";
 import { readOwnerId } from "@/lib/auth";
 import { listSites, ownerUsageBytes } from "@/lib/sites";
-import { limits, storageDriver } from "@/lib/config";
+import { limits, runtimeProblems, storageDriver } from "@/lib/config";
 import { formatBytes, t } from "@/lib/i18n";
 import { Uploader } from "@/components/uploader";
 
@@ -12,6 +12,8 @@ export default async function HomePage() {
   const lang = await getLang();
   const ownerId = await readOwnerId();
   const [sites, usedBytes] = ownerId ? await Promise.all([listSites(ownerId), ownerUsageBytes(ownerId)]) : [[], 0];
+  // Configuration, not content: show it before anyone picks a file.
+  const problems = runtimeProblems();
 
   const kindLabel = (kind: string) =>
     kind === "document" ? t(lang, "kindDocument") : kind === "folder" ? t(lang, "kindFolder") : t(lang, "kindSingle");
@@ -31,6 +33,7 @@ export default async function HomePage() {
         lang={lang}
         driver={storageDriver}
         usedBytes={usedBytes}
+        problems={problems}
         limits={{
           maxFileBytes: limits.maxFileBytes,
           maxVersionBytes: limits.maxVersionBytes,

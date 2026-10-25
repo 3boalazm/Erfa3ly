@@ -1,6 +1,6 @@
 import "server-only";
 import { asDate, asNumber, exec, one, rows, type Row } from "@/lib/db";
-import { limits, storageDriver } from "@/lib/config";
+import { assertUsableRuntime, limits, storageDriver } from "@/lib/config";
 import { createId } from "@/lib/ids";
 import { ApiError, badRequest, conflict, notFound } from "@/lib/http";
 import { isJunkPath, safeRelativePath, versionPrefix } from "@/lib/paths";
@@ -114,6 +114,9 @@ export async function createUploadSession(input: {
   files: unknown;
   title?: string | null;
 }): Promise<OpenSessionResult> {
+  // Fail before a byte moves: a deployment that cannot store files must say so
+  // here, not after the browser has uploaded 40 MB to a route that will 413.
+  assertUsableRuntime();
   const targets = validateTargets(input.kind, input.files);
   await consumeWriteBudget(input.ownerId);
   const declaredBytes = targets.reduce((sum, target) => sum + target.size, 0);

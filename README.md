@@ -49,6 +49,10 @@ npm run build      # next build --webpack
 #   ERFA3LY_PUBLIC_URL=https://<نطاقك>
 ```
 
+بعد النشر تحقق بسطر واحد: `curl -s https://<نطاقك>/api/health` — يجب أن يعيد
+`storage: "blob"` و`database: "postgres"` و`problems: []`. إن ظهر `storage: "local"`
+فمتجر Blob غير مربوط، والرفع سيفشل بـ 413 (سقف جسم دالة Vercel).
+
 `vercel.json` يضيف Cron يومياً إلى `/api/cron/gc` (جلسات الرفع المتروكة، والمواقع
 المحذوفة بعد مدة الاحتفاظ). التفاصيل الكاملة، والأرقام، وأربع تصحيحات لازمة على
 الخطة الأولية في **[docs/deploy-vercel.md](docs/deploy-vercel.md)**.

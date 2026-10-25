@@ -1,4 +1,4 @@
-import { assertSameOrigin, errorResponse, jsonNoStore } from "@/lib/http";
+import { assertSameOrigin, configurationResponse, errorResponse, jsonNoStore } from "@/lib/http";
 import { ensureOwnerId } from "@/lib/auth";
 import { createUploadSession } from "@/lib/uploads";
 import type { UploadKind } from "@/lib/types";
@@ -17,6 +17,8 @@ const KINDS: UploadKind[] = ["files", "zip", "document"];
  * /api/blob/upload; this function never sees the payload.
  */
 export async function POST(request: Request) {
+  const blocked = configurationResponse();
+  if (blocked) return blocked;
   try {
     assertSameOrigin(request);
     const ownerId = await ensureOwnerId();

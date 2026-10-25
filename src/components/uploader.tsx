@@ -9,6 +9,8 @@ interface UploaderProps {
   driver: "local" | "blob";
   limits: { maxFileBytes: number; maxVersionBytes: number; maxFiles: number; quotaBytes: number };
   usedBytes: number;
+  /** Names of missing settings, from the server. Non-empty ⇒ uploads are refused. */
+  problems: string[];
 }
 
 interface PickedFile {
@@ -35,7 +37,7 @@ const ZIP_RE = /\.zip$/i;
  * per-file cap and the quota are checked when the session opens, and again
  * against the bytes that actually arrived when it commits.
  */
-export function Uploader({ lang, driver, limits, usedBytes }: UploaderProps) {
+export function Uploader({ lang, driver, limits, usedBytes, problems }: UploaderProps) {
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -50,12 +52,18 @@ export function Uploader({ lang, driver, limits, usedBytes }: UploaderProps) {
   const zipInput = useRef<HTMLInputElement>(null);
 
   const busy = phase === "opening" || phase === "uploading" || phase === "committing";
+  const blocked = problems.length > 0;
   const percent = progress.total > 0 ? Math.min(100, Math.round((progress.done / progress.total) * 100)) : 0;
 
   const publish = useCallback(
     async (items: PickedFile[]) => {
       setError(null);
       if (items.length === 0) return;
+      if (blocked) {
+        setError(t(lang, "uploadDisabled"));
+        setPhase("error");
+        return;
+      }
       if (items.length > limits.maxFiles) {
         setError(`${t(lang, "failed")}: ${limits.maxFiles} ${lang === "ar" ? "ملف كحد أقصى" : "files max"}`);
         setPhase("error");
@@ -100,6 +108,7 @@ export function Uploader({ lang, driver, limits, usedBytes }: UploaderProps) {
           sessionId?: string;
           prefix?: string;
           driver?: "local" | "blob";
+          uploadMode?: "local" | "blob-token" | "blob-presigned";
           fileUrl?: string;
           error?: string;
         };
@@ -112,17 +121,22 @@ export function Uploader({ lang, driver, limits, usedBytes }: UploaderProps) {
           const onProgress = (loaded: number) => {
             setProgress({ done: done + Math.min(loaded, item.size), total });
           };
-          if (session.driver === "blob") {
-            const { upload } = await import("@vercel/blob/client");
-            await upload(`${session.prefix}/${item.path}`, item.file, {
-              access: "public",
-              handleUploadUrl: "/api/blob/upload",
+          if (session.uploadMode === "blob-token" || session.uploadMode === "blob-presigned") {
+            const client = await import("@vercel/blob/client");
+            const options = {
+              access: "public" as const,
+              // Where the server decides whether and where this upload may land.
+              handleUploadUrl:
+                session.uploadMode === "blob-token" ? "/api/blob/upload" : "/api/blob/upload-presigned",
               clientPayload: JSON.stringify({ sessionId: session.sessionId }),
               // Above 100 MB the SDK switches to multipart: parts retry on their
               // own instead of the whole file starting over.
               multipart: item.size > 100 * 1024 * 1024,
-              onUploadProgress: (event) => onProgress(event.loaded),
-            });
+              onUploadProgress: (event: { loaded: number }) => onProgress(event.loaded),
+            };
+            await (session.uploadMode === "blob-token"
+              ? client.upload(`${session.prefix}/${item.path}`, item.file, options)
+              : client.uploadPresigned(`${session.prefix}/${item.path}`, item.file, options));
           } else {
             await putWithProgress(
               `${session.fileUrl}?path=${encodeURIComponent(item.path)}`,
@@ -149,11 +163,11 @@ export function Uploader({ lang, driver, limits, usedBytes }: UploaderProps) {
         router.push(committed.url);
         router.refresh();
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : "upload failed");
+        setError(readableError(cause, lang));
         setPhase("error");
       }
     },
-    [lang, limits, router, title, usedBytes],
+    [blocked, lang, limits, router, title, usedBytes],
   );
 
   const sampleHtml = `<!doctype html>
@@ -230,6 +244,23 @@ export function Uploader({ lang, driver, limits, usedBytes }: UploaderProps) {
         </span>
       </div>
 
+      {blocked ? (
+        <div
+          className="panel-soft"
+          style={{ padding: 12, marginBottom: 12, borderColor: "rgba(246,193,119,.35)", background: "rgba(246,193,119,.06)" }}
+        >
+          <div style={{ fontWeight: 700, fontSize: 13.5, color: "var(--warn)", marginBottom: 4 }}>
+            {t(lang, "uploadDisabled")}
+          </div>
+          <ul className="muted" style={{ margin: 0, paddingInlineStart: 18, fontSize: 12.5, lineHeight: 1.9 }}>
+            {problems.map((problem) => (
+              <li key={problem}>{localizeProblem(problem, lang)}</li>
+            ))}
+            <li>{t(lang, "configHow")}</li>
+          </ul>
+        </div>
+      ) : null}
+
       <div style={{ marginBottom: 12 }}>
         <label className="label" htmlFor="artifact-title">
           {t(lang, "titleLabel")}
@@ -271,13 +302,13 @@ export function Uploader({ lang, driver, limits, usedBytes }: UploaderProps) {
           {t(lang, "dropSubtitle")}
         </div>
         <div className="row" style={{ justifyContent: "center", flexWrap: "wrap" }}>
-          <button type="button" className="btn" disabled={busy} onClick={() => fileInput.current?.click()}>
+          <button type="button" className="btn" disabled={busy || blocked} onClick={() => fileInput.current?.click()}>
             {t(lang, "chooseFiles")}
           </button>
-          <button type="button" className="btn" disabled={busy} onClick={() => folderInput.current?.click()}>
+          <button type="button" className="btn" disabled={busy || blocked} onClick={() => folderInput.current?.click()}>
             {t(lang, "chooseFolder")}
           </button>
-          <button type="button" className="btn" disabled={busy} onClick={() => zipInput.current?.click()}>
+          <button type="button" className="btn" disabled={busy || blocked} onClick={() => zipInput.current?.click()}>
             {t(lang, "chooseZip")}
           </button>
         </div>
@@ -413,6 +444,30 @@ function putWithProgress(url: string, file: File, onProgress: (loaded: number) =
     request.onerror = () => reject(new Error("network error"));
     request.send(file);
   });
+}
+
+/** The server reports problems in one language; show the reader theirs. */
+function localizeProblem(problem: string, lang: Lang): string {
+  if (/BLOB_READ_WRITE_TOKEN/i.test(problem)) return t(lang, "configStorage");
+  if (/DATABASE_URL|POSTGRES_URL/i.test(problem)) return t(lang, "configDb");
+  return problem;
+}
+
+/**
+ * Turn a transport-level failure into something a person can act on. The case
+ * this exists for: a deployment without a Blob store answered a 120 MB upload
+ * with Vercel's bare `413 FUNCTION_PAYLOAD_TOO_LARGE`, after the whole body had
+ * been sent — the message must say "connect a Blob store", not "HTTP 413".
+ */
+function readableError(cause: unknown, lang: Lang): string {
+  const raw = cause instanceof Error ? cause.message : String(cause ?? "");
+  if (/FUNCTION_PAYLOAD_TOO_LARGE|413|Entity Too Large|body exceeded/i.test(raw)) {
+    return t(lang, "errTooLarge");
+  }
+  if (/blob_required|direct-to-Blob|BLOB_READ_WRITE_TOKEN/i.test(raw)) {
+    return t(lang, "errBlobRequired");
+  }
+  return raw || "upload failed";
 }
 
 function readError(text: string): string {

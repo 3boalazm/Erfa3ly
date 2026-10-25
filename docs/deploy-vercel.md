@@ -123,3 +123,97 @@ npm run dev               # http://localhost:3000
 - معاينة Office (يحتاج Gotenberg خارج Vercel: خدمة منفصلة).
 - بحث نصي كامل داخل المستندات (استخراج نص PDF).
 - نقل الأصول الثقيلة إلى نطاق معاينة منفصل مع ترويسات عزل مكافئة.
+
+## ٧. استكشاف الأعطال
+
+### لا يوجد `BLOB_READ_WRITE_TOKEN` لكن المتجر مربوط
+
+هذا طبيعي في نمط الربط الأحدث: Vercel يحقن **`BLOB_STORE_ID`** (وقد ترى أيضاً
+`BLOB_WEBHOOK_PUBLIC_KEY`) ويعطيك في كل تشغيل توكن OIDC قصير العمر
+(`VERCEL_OIDC_TOKEN`). النسخة الحالية تدعم الوضعين:
+
+| ما يوجد في البيئة | المصادقة | رفع المتصفح |
+| --- | --- | --- |
+| `BLOB_READ_WRITE_TOKEN` | توكن دائم | `upload()` → `/api/blob/upload` |
+| `BLOB_STORE_ID` فقط (على Vercel) | OIDC مؤقت | `uploadPresigned()` → `/api/blob/upload-presigned` |
+
+لا تحتاج إلى توليد توكن يدوياً. المطلوب فقط **إعادة نشر (Redeploy)** بعد ربط المتجر،
+لأن متغيرات البيئة تُقرأ عند البناء/التشغيل. تحقّق بـ `/api/health`:
+
+```json
+{ "storage": "blob", "blobAuth": "oidc", "blobStoreIdPresent": true, "problems": [] }
+```
+
+إن ظهر `"blobAuth": "none"` مع `"blobStoreIdPresent": true` فالربط لم يُطبَّق على هذا
+النشر بعد — أعد النشر؛ وإن استمر، أضف `BLOB_READ_WRITE_TOKEN` من صفحة المتجر
+(Store → `.env` / Connect Project).
+
+### `413 FUNCTION_PAYLOAD_TOO_LARGE` عند رفع الملفات
+
+هذا يعني أن المتصفح رفع إلى `/api/uploads/<id>/files` — أي أن الخادم أعاد `driver: "local"`، أي أن **`BLOB_READ_WRITE_TOKEN` غير موجود في بيئة النشر**. على Vercel لا قرص دائم، وسقف جسم الدالة 4.5 MB، لذلك رفض Vercel الطلب بعد أن أرسل المتصفح كامل الملف.
+
+الحل:
+
+1. Vercel → **Storage → Create → Blob** ثم اربطه بالمشروع (يضيف المتغير تلقائياً).
+2. تأكد من ظهوره في **Settings → Environment Variables** لبيئة **Production**.
+3. **Deployments → ⋯ → Redeploy** — إضافة متغير لا تؤثر على نشر قائم.
+
+النسخة الحالية لا تنتظر حدوث 413: `/api/uploads` يعيد **503** مع قائمة النواقص قبل أن يبدأ الرفع، والواجهة تعرض شريط «الرفع معطّل حتى يكتمل الإعداد» وتعطّل أزرار الرفع.
+
+### شريط «إعداد النشر ناقص» في الصفحة
+
+اقرأ الرسالة نفسها؛ تذكر اسم المتغير المفقود بدقة (`BLOB_READ_WRITE_TOKEN` أو `DATABASE_URL`/`POSTGRES_URL`).
+
+### فحص سريع بعد النشر
+
+```bash
+curl -s https://<نطاقك>/api/health | jq
+# {
+#   "ok": true,
+#   "vercel": true,
+#   "storage": "blob",          ← لو ظهر "local" فتوكن Blob ناقص
+#   "database": "postgres",     ← لو ظهر "missing" فرابط القاعدة ناقص
+#   "databaseVariable": "DATABASE_URL",
+#   "problems": []
+# }
+```
+
+`503` من هذا المسار يعني أن النشر غير مكتمل الإعداد، والرسائل تشرح السبب. لا يعرض المسار أي قيمة سرية، فقط أسماء المتغيرات الموجودة.
+
+### المعاينة فارغة أو بيضاء بينما الصفحة تعمل عند فتح الملف محلياً
+
+سببان شائعان، ولوحة الموقع أصبحت تكتشفهما وتعرضهما فوق المعاينة:
+
+1. **أصول لم تُرفع.** لو ظهر «ملفات مفقودة داخل هذا الإصدار» فالصفحة تشير إلى
+   `assets/css/style.css` وأمثاله ولا يوجد في الإصدار إلا ملف HTML واحد. ارفع المجلد
+   كاملاً أو ZIP (مع `index.html` في الجذر)؛ الاستنتاج يتولّى تجريد المجلد الغلاف.
+2. **واجهات ممنوعة في الأصل المعزول.** الصفحات التي تستخدم `localStorage` أو
+   `indexedDB` أو `history.replaceState` تتوقف عند أول سطر داخل إطار معزول بلا
+   `allow-same-origin`، فتبدو فارغة. هذه الواجهات `[LegacyUnforgeable]` على `window`
+   ولا يمكن استبدالها بحقن سكربت. الحل الحقيقي: أصل منفصل للمعاينة.
+
+#### إعداد أصل معاينة منفصل (مستحسن)
+
+1. أضف نطاقاً فرعياً إلى نفس المشروع في Vercel (مثلاً `artifacts.example.com` أو نطاق
+   `*.vercel.app` مخصص للمشروع).
+2. اضبط `ERFA3LY_PREVIEW_ORIGIN=https://artifacts.example.com` و`ERFA3LY_PUBLIC_URL`
+   على نطاق التطبيق، ثم أعد النشر.
+3. النتيجة: المعاينة تُقدَّم من النطاق الفرعي بترويسة
+   `Content-Security-Policy: frame-ancestors 'self' <app>` بدل `sandbox`، فيحصل الملف
+   على أصل حقيقي (تخزين وتاريخ يعملان)، ويُضمَّن بـ `allow-same-origin`. العزل يبقى
+   قائماً لأن كوكي المساحة host-only ولا يُرسل إلى النطاق الفرعي، والكود يرفض أي طلب
+   مُصادق بالكوكي على نطاق المعاينة (`isPreviewRequest` في `src/lib/auth.ts`).
+
+بدون هذا المتغير يظل العزل الافتراضي (أصل غامض) ويعرض الـ dashboard تنبيهاً بدل
+معاينة صامتة.
+
+### أخطاء أخرى متوقعة
+
+| الرسالة | السبب | الحل |
+| --- | --- | --- |
+| `unsafe relative path` / `blocked path segment` | ZIP يحتوي `..` أو `.git` أو `node_modules` | أعد ضغط المشروع دون مجلداته الداخلية |
+| `the archive has no index.html…` | ZIP بلا صفحة دخول | ارفع مجلد البناء (`dist/`) أو أضف `index.html` |
+| `zip rejected: entry too large` | ملف داخل ZIP يتجاوز `ERFA3LY_MAX_FILE_BYTES` | ارفع الملف وحده أو ارفع الحد |
+| `quota exceeded` | تجاوزت مساحة المالك | احذف عملاً قديماً (تُفرَّغ المساحة بعد مدة الاحتفاظ) أو ارفع `ERFA3LY_QUOTA_BYTES` |
+| `cross-origin write refused` | `Origin` لا يطابق النشر | اضبط `ERFA3LY_PUBLIC_URL` أو أضف الأصل في `ERFA3LY_ALLOWED_ORIGINS` |
+| `503 CRON_SECRET is not configured` | مهمة التنظيف معطّلة | اضبط `CRON_SECRET` |

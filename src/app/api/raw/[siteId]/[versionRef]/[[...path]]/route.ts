@@ -2,6 +2,8 @@ import { isHtml, isInlineRenderable, mimeFor } from "@/lib/mime";
 import { resolvePreviewTarget } from "@/lib/sites";
 import { getStorage } from "@/lib/storage";
 import { safeRelativePath, UnsafePathError, versionKey } from "@/lib/paths";
+import { publicOrigin } from "@/lib/config";
+import { isPreviewRequest } from "@/lib/request-host";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -75,7 +77,10 @@ async function serve(request: Request, context: RouteContext, headOnly: boolean)
   if (!meta) return notFound();
 
   const mime = mimeFor(resolvedPath);
-  const headers = baseHeaders();
+  // A separate preview hostname means the artifact gets a real origin (storage and
+  // history APIs work) while carrying none of this app's cookies.
+  const onPreviewOrigin = isPreviewRequest(request.headers);
+  const headers = baseHeaders(onPreviewOrigin);
   headers.set("Content-Type", mime);
   headers.set("Accept-Ranges", "bytes");
   headers.set("ETag", `"${target.version.id}-${resolvedPath}"`);
@@ -113,7 +118,13 @@ async function serve(request: Request, context: RouteContext, headOnly: boolean)
     const full = await storage.getObject(keyFor(resolvedPath));
     if (!full) return notFound();
     const bytes = new Uint8Array(await new Response(full.body).arrayBuffer());
-    const injected = injectShim(new TextDecoder().decode(bytes));
+    const injected = injectShim(new TextDecoder().decode(bytes), {
+      siteRoot: `/api/raw/${siteId}/${versionRef}/`,
+      // A root <base> repairs asset paths on nested pages of a multi-file site.
+      // It also changes how bare `#anchor` links resolve, so single-page
+      // artifacts (where the page already sits at the root) are left alone.
+      injectBase: target.version.fileCount > 1,
+    });
     const encoded = new TextEncoder().encode(injected);
     headers.set("Content-Length", String(encoded.byteLength));
     return new Response(encoded, { status: 200, headers });
@@ -125,14 +136,26 @@ async function serve(request: Request, context: RouteContext, headOnly: boolean)
   return new Response(object.body, { status: 200, headers });
 }
 
-function baseHeaders(): Headers {
+function baseHeaders(realOrigin = false): Headers {
   const headers = new Headers();
   // The sandbox directive is the boundary: opaque origin, scripts allowed (they
   // are the artifact), forms/pop-ups/downloads as a browser tab would allow.
-  headers.set(
-    "Content-Security-Policy",
-    "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads allow-pointer-lock allow-popups-to-escape-sandbox",
-  );
+  //
+  // On a dedicated preview hostname the artifact already lives in an origin of
+  // its own, so the opaque-origin restriction is unnecessary — and it is exactly
+  // what breaks pages that use localStorage, indexedDB or history.replaceState.
+  // There we keep the frame locked to this deployment instead of sandboxing.
+  if (realOrigin) {
+    // Only this deployment may frame the artifact; nothing else about the origin
+    // is restricted, because the origin itself is the isolation boundary now.
+    const app = publicOrigin();
+    headers.set("Content-Security-Policy", `frame-ancestors 'self'${app ? ` ${app}` : ""}`);
+  } else {
+    headers.set(
+      "Content-Security-Policy",
+      "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads allow-pointer-lock allow-popups-to-escape-sandbox",
+    );
+  }
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("Referrer-Policy", "no-referrer");
   headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
@@ -171,15 +194,22 @@ function resolveRange(header: string | null, size: number): { start: number; end
 }
 
 /**
- * Storage shim.
+ * Two injections, both about making ordinary pages work:
  *
- * A document in an opaque origin throws on `localStorage` access in Chrome, and
- * plenty of generated dashboards touch it on the first line. Defining an
- * in-memory stand-in keeps those pages working without weakening the sandbox
- * (nothing is persisted, nothing is shared between artifacts).
+ *  - `<base href>`, pointing at the site root. Without it a page at
+ *    `pages/about.html` that references `assets/app.css` asks for
+ *    `pages/assets/app.css` — the classic "unstyled / blank" upload.
+ *  - a storage shim. `localStorage`/`sessionStorage` are `[LegacyUnforgeable]`
+ *    on `window`, so a page in an opaque origin cannot be given a stand-in by
+ *    redefining the property; what we can do is remove the *first* failure for
+ *    pages that probe before use. Pages that genuinely need storage should be
+ *    served from a dedicated preview origin (ERFA3LY_PREVIEW_ORIGIN), which the
+ *    dashboard recommends when it detects them.
  */
-function injectShim(html: string): string {
-  const shim = `<script data-erfa3ly-shim>(function(){try{window.localStorage.getItem("probe")}catch(e){var m={},s={getItem:function(k){return Object.prototype.hasOwnProperty.call(m,String(k))?m[String(k)]:null},setItem:function(k,v){m[String(k)]=String(v)},removeItem:function(k){delete m[String(k)]},clear:function(){m={}},key:function(i){return Object.keys(m)[i]||null}};try{Object.defineProperty(s,"length",{get:function(){return Object.keys(m).length}})}catch(e){}try{Object.defineProperty(window,"localStorage",{configurable:true,value:s})}catch(e){}try{Object.defineProperty(window,"sessionStorage",{configurable:true,value:s})}catch(e){}}})();</script>`;
+function injectShim(html: string, options: { siteRoot: string; injectBase: boolean }): string {
+  const base =
+    options.injectBase && !/<base\s/i.test(html) ? `<base href="${options.siteRoot}">` : "";
+  const shim = base + `<script data-erfa3ly-shim>(function(){try{window.localStorage.getItem("probe")}catch(e){var m={},s={getItem:function(k){return Object.prototype.hasOwnProperty.call(m,String(k))?m[String(k)]:null},setItem:function(k,v){m[String(k)]=String(v)},removeItem:function(k){delete m[String(k)]},clear:function(){m={}},key:function(i){return Object.keys(m)[i]||null}};try{Object.defineProperty(s,"length",{get:function(){return Object.keys(m).length}})}catch(e){}try{Object.defineProperty(window,"localStorage",{configurable:true,value:s})}catch(e){}try{Object.defineProperty(window,"sessionStorage",{configurable:true,value:s})}catch(e){}}})();</script>`;
   if (/<head[^>]*>/i.test(html)) return html.replace(/<head[^>]*>/i, (match) => `${match}${shim}`);
   if (/<html[^>]*>/i.test(html)) return html.replace(/<html[^>]*>/i, (match) => `${match}${shim}`);
   return shim + html;

@@ -28,11 +28,69 @@ export const limits = {
 export const dataDir = path.resolve(process.env.ERFA3LY_DATA_DIR || "./.erfa3ly-data");
 
 export const blobToken = (process.env.BLOB_READ_WRITE_TOKEN || "").trim();
+export const blobStoreId = (process.env.BLOB_STORE_ID || "").trim();
+const oidcToken = (process.env.VERCEL_OIDC_TOKEN || "").trim();
 
-/** Which storage driver this process uses. Chosen by the presence of a Blob token. */
-export const storageDriver: "blob" | "local" = blobToken ? "blob" : "local";
+/**
+ * How this deployment authenticates to Vercel Blob.
+ *
+ * Two modes exist, and confusing them is a real deployment trap:
+ *
+ *  - `token`  — a `BLOB_READ_WRITE_TOKEN` (what "Connect Store" used to inject,
+ *               and what local development uses).
+ *  - `oidc`   — the newer connection style: Vercel injects `BLOB_STORE_ID` and
+ *               issues short-lived OIDC tokens at runtime (`VERCEL_OIDC_TOKEN`).
+ *               Nothing else is needed; requiring a token here made a correctly
+ *               connected production deployment look unconfigured.
+ *
+ * `oidc` is chosen only when the store id is present *and* we are on Vercel (or an
+ * OIDC token was pulled locally), otherwise `npm run dev` would try to reach a
+ * store it cannot authenticate to.
+ */
+export const blobAuth: "token" | "oidc" | "none" = blobToken
+  ? "token"
+  : blobStoreId && (oidcToken || process.env.VERCEL)
+    ? "oidc"
+    : "none";
 
-export const databaseUrl = (process.env.DATABASE_URL || "").trim();
+/** Which storage driver this process uses. */
+export const storageDriver: "blob" | "local" = blobAuth === "none" ? "local" : "blob";
+
+/**
+ * How a browser should move bytes for this deployment.
+ * `blob-presigned` is the OIDC path: the server issues a scoped signed token and
+ * the browser uploads through a presigned URL (`uploadPresigned`).
+ */
+export const blobUploadMode: "local" | "blob-token" | "blob-presigned" =
+  storageDriver === "local" ? "local" : blobAuth === "token" ? "blob-token" : "blob-presigned";
+
+/**
+ * Postgres connection string.
+ *
+ * `DATABASE_URL` is the name this project documents, but the Vercel/Neon
+ * integrations inject different names depending on how the store was created
+ * (`POSTGRES_URL` for "Vercel Postgres", `DATABASE_URL_UNPOOLED` for a direct
+ * connection, `POSTGRES_PRISMA_URL` for Prisma). Accepting them in order of
+ * preference means a deployment does not fail on a naming detail — and the
+ * pooled names win, because every serverless instance keeps its own pool and an
+ * unpooled string runs out of connections first.
+ */
+function pickDatabaseUrl(): string {
+  const names = ["DATABASE_URL", "POSTGRES_URL", "POSTGRES_PRISMA_URL", "DATABASE_URL_UNPOOLED"];
+  for (const name of names) {
+    const value = (process.env[name] || "").trim();
+    if (value) return value;
+  }
+  return "";
+}
+
+export const databaseUrl = pickDatabaseUrl();
+
+/** Which variable the connection string came from — for the boot log, never the value. */
+export function databaseUrlSource(): string | null {
+  const names = ["DATABASE_URL", "POSTGRES_URL", "POSTGRES_PRISMA_URL", "DATABASE_URL_UNPOOLED"];
+  return names.find((name) => (process.env[name] || "").trim()) ?? null;
+}
 
 /**
  * Vercel sets VERCEL=1 and has no writable disk that survives a request. Local
@@ -41,17 +99,61 @@ export const databaseUrl = (process.env.DATABASE_URL || "").trim();
  */
 export const isVercel = Boolean(process.env.VERCEL);
 
-export function assertUsableRuntime(): void {
-  if (!isVercel) return;
-  if (storageDriver === "local") {
-    throw new Error(
-      "BLOB_READ_WRITE_TOKEN is missing: on Vercel there is no durable disk, so artifacts must go to Vercel Blob. Connect a Blob store to the project.",
-    );
+/**
+ * Everything wrong with this deployment's configuration, in the operator's terms.
+ *
+ * This exists because of one specific, expensive mistake: a production deploy
+ * without `BLOB_READ_WRITE_TOKEN` silently fell back to the local-disk driver, the
+ * browser then uploaded to `/api/uploads/<id>/files`, and Vercel answered
+ * `413 FUNCTION_PAYLOAD_TOO_LARGE` — after the user had waited for a 40 MB
+ * upload. The upload path is now refused at session-open with this list, and the
+ * dashboard shows it before anyone picks a file.
+ */
+export function runtimeProblems(): string[] {
+  const problems: string[] = [];
+  if (isVercel) {
+    if (storageDriver === "local") {
+      problems.push(
+        blobStoreId
+          ? "A Blob store is connected (BLOB_STORE_ID is set) but this deployment has no way to authenticate to it: VERCEL_OIDC_TOKEN is not available at runtime. Redeploy the project so Vercel injects a fresh OIDC token, or add BLOB_READ_WRITE_TOKEN from the store's settings."
+          : "No Blob store is connected: BLOB_READ_WRITE_TOKEN / BLOB_STORE_ID are both missing. A Vercel Function cannot receive more than 4.5 MB and has no durable disk, so uploads must go to Vercel Blob (Vercel → Storage → Blob → connect to this project, then redeploy).",
+      );
+    }
+    if (!databaseUrl) {
+      problems.push(
+        "No Postgres connection string: set DATABASE_URL (or POSTGRES_URL from the Vercel/Neon integration) and redeploy.",
+      );
+    }
   }
-  if (!databaseUrl) {
-    throw new Error(
-      "DATABASE_URL is missing: metadata needs a Postgres database (Neon, Supabase, ...). The in-process PGlite fallback is for local development only.",
-    );
+  return problems;
+}
+
+export function assertUsableRuntime(): void {
+  const problems = runtimeProblems();
+  if (problems.length > 0) throw new Error(problems.join(" "));
+}
+
+/**
+ * Optional second origin for previews, e.g. `https://artifacts.example.com`
+ * pointing at this same deployment.
+ *
+ * Why it exists: an artifact rendered with CSP `sandbox` (and an iframe without
+ * `allow-same-origin`) has an *opaque* origin, and in that origin `localStorage`,
+ * `sessionStorage`, `indexedDB` and `history.replaceState` throw. Generated pages
+ * touch them all the time, so their first script line dies and the page stays
+ * blank. On a separate hostname the artifact gets a real origin — and because the
+ * dashboard's cookie is host-only, it still carries no session and cannot call
+ * the write API. Without this variable the platform keeps the sandbox and warns
+ * instead of pretending.
+ */
+export const previewOrigin = (process.env.ERFA3LY_PREVIEW_ORIGIN || "").trim().replace(/\/+$/, "");
+
+export function previewHost(): string | null {
+  if (!previewOrigin) return null;
+  try {
+    return new URL(previewOrigin).host;
+  } catch {
+    return null;
   }
 }
 

@@ -4,6 +4,7 @@ import { getLang } from "@/lib/i18n-server";
 import { resolveShare } from "@/lib/shares";
 import { getVersionForSite } from "@/lib/sites";
 import { t } from "@/lib/i18n";
+import { previewOrigin } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
 
@@ -48,7 +49,11 @@ export default async function SharePage({ params }: { params: Promise<{ token: s
   // so an updated artifact is visible through the old link too.
   const version = share.versionId ? await getVersionForSite(share.siteId, share.versionId) : null;
   const path = version ? version.entryPath : share.entryPath;
-  const src = `/api/raw/${share.siteId}/${version ? version.id : "current"}/${path}`;
+  const rawPath = `/api/raw/${share.siteId}/${version ? version.id : "current"}/${path}`;
+  const src = previewOrigin ? `${previewOrigin}${rawPath}` : rawPath;
+  const sandbox = previewOrigin
+    ? "allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads allow-pointer-lock"
+    : "allow-scripts allow-forms allow-popups allow-modals allow-downloads allow-pointer-lock";
 
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: "calc(100vh - 62px)" }}>
@@ -74,7 +79,7 @@ export default async function SharePage({ params }: { params: Promise<{ token: s
           <iframe
             src={src}
             title={share.siteTitle}
-            sandbox="allow-scripts allow-forms allow-popups allow-modals allow-downloads allow-pointer-lock"
+            sandbox={sandbox}
             style={{ height: "100%" }}
             referrerPolicy="no-referrer"
           />

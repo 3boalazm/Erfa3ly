@@ -38,10 +38,20 @@ export interface WorkspaceSite {
   files: { path: string; size: number; mime: string }[];
 }
 
+export interface PreviewDiagnosisProps {
+  missing: string[];
+  absolute: string[];
+  opaqueApis: string[];
+}
+
 interface Props {
   lang: Lang;
   site: WorkspaceSite;
   retentionDays: number;
+  /** Why the preview might look blank, computed from the stored HTML. */
+  diagnosis: PreviewDiagnosisProps | null;
+  /** Separate hostname for previews, when the deployment configured one. */
+  previewOrigin: string | null;
 }
 
 /**
@@ -50,7 +60,7 @@ interface Props {
  * the API routes and then a `router.refresh()` — the server stays the source of
  * truth, so two tabs cannot drift into disagreeing about the current version.
  */
-export function SiteWorkspace({ lang, site, retentionDays }: Props) {
+export function SiteWorkspace({ lang, site, retentionDays, diagnosis, previewOrigin }: Props) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -63,7 +73,14 @@ export function SiteWorkspace({ lang, site, retentionDays }: Props) {
   const [html, setHtml] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const previewSrc = `/api/raw/${site.id}/current/${site.entryPath}`;
+  const rawPath = `/api/raw/${site.id}/current/${site.entryPath}`;
+  // On a configured preview hostname the artifact gets a real origin, so the
+  // frame may keep it (allow-same-origin) — that is what makes storage and
+  // history APIs work. Without one, the frame stays opaque on purpose.
+  const previewSrc = previewOrigin ? `${previewOrigin}${rawPath}` : rawPath;
+  const sandbox = previewOrigin
+    ? "allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads allow-pointer-lock"
+    : "allow-scripts allow-forms allow-popups allow-modals allow-downloads allow-pointer-lock";
 
   async function call(key: string, input: RequestInfo, init?: RequestInit): Promise<unknown> {
     setBusy(key);
@@ -166,6 +183,42 @@ export function SiteWorkspace({ lang, site, retentionDays }: Props) {
         </div>
       ) : null}
 
+      {diagnosis && diagnosis.missing.length > 0 ? (
+        <div className="panel" style={{ padding: 14, borderColor: "rgba(243,111,111,.32)" }}>
+          <div className="row" style={{ gap: 8, marginBottom: 4 }}>
+            <span className="badge badge-warn">!</span>
+            <strong style={{ fontSize: 13.5 }}>{t(lang, "fixMissingTitle")}</strong>
+          </div>
+          <p className="muted" style={{ margin: "0 0 8px", fontSize: 12.5, lineHeight: 1.8 }}>
+            {t(lang, "fixMissingBody", { n: diagnosis.missing.length })}
+          </p>
+          <div className="mono" style={{ fontSize: 11.5, opacity: 0.8, overflowWrap: "anywhere" }}>
+            {t(lang, "fixExamples")}: {diagnosis.missing.slice(0, 6).join(" · ")}
+          </div>
+        </div>
+      ) : null}
+
+      {diagnosis && diagnosis.absolute.length > 0 ? (
+        <div className="panel" style={{ padding: 14, borderColor: "rgba(246,193,119,.32)" }}>
+          <strong style={{ fontSize: 13.5, display: "block", marginBottom: 4 }}>{t(lang, "fixAbsoluteTitle")}</strong>
+          <p className="muted" style={{ margin: "0 0 8px", fontSize: 12.5, lineHeight: 1.8 }}>
+            {t(lang, "fixAbsoluteBody", { n: diagnosis.absolute.length })}
+          </p>
+          <div className="mono" style={{ fontSize: 11.5, opacity: 0.8, overflowWrap: "anywhere" }}>
+            {diagnosis.absolute.slice(0, 6).join(" · ")}
+          </div>
+        </div>
+      ) : null}
+
+      {diagnosis && diagnosis.opaqueApis.length > 0 && !previewOrigin ? (
+        <div className="panel" style={{ padding: 14, borderColor: "rgba(110,163,231,.32)" }}>
+          <strong style={{ fontSize: 13.5, display: "block", marginBottom: 4 }}>{t(lang, "fixStorageTitle")}</strong>
+          <p className="muted" style={{ margin: 0, fontSize: 12.5, lineHeight: 1.8 }}>
+            {t(lang, "fixStorageBody", { apis: diagnosis.opaqueApis.join(", ") })}
+          </p>
+        </div>
+      ) : null}
+
       {site.needsRuntime ? (
         <div className="panel" style={{ padding: 14, borderColor: "rgba(246,193,119,.3)" }}>
           <div className="row" style={{ gap: 8, marginBottom: 4 }}>
@@ -183,6 +236,7 @@ export function SiteWorkspace({ lang, site, retentionDays }: Props) {
           <div className="row" style={{ gap: 8 }}>
             <span className="section-title">{t(lang, "preview")}</span>
             <span className="badge">{t(lang, `kind${site.kind === "folder" ? "Folder" : site.kind === "document" ? "Document" : "Single"}` as "kindSingle")}</span>
+            <span className="badge">{previewOrigin ? t(lang, "previewRealOrigin") : t(lang, "previewSandboxed")}</span>
           </div>
           <a className="btn btn-sm btn-ghost" href={previewSrc} target="_blank" rel="noreferrer noopener">
             {t(lang, "openRaw")}
@@ -195,7 +249,7 @@ export function SiteWorkspace({ lang, site, retentionDays }: Props) {
             title={site.title}
             // No allow-same-origin: the document runs in an opaque origin and
             // cannot reach this page's cookies or the API.
-            sandbox="allow-scripts allow-forms allow-popups allow-modals allow-downloads allow-pointer-lock"
+            sandbox={sandbox}
             style={{ height: 520 }}
             referrerPolicy="no-referrer"
             loading="lazy"

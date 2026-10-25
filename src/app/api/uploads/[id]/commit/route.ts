@@ -1,4 +1,4 @@
-import { assertSameOrigin, errorResponse, jsonNoStore } from "@/lib/http";
+import { assertSameOrigin, configurationResponse, errorResponse, jsonNoStore } from "@/lib/http";
 import { readOwnerId } from "@/lib/auth";
 import { commitUploadSession } from "@/lib/uploads";
 import { TreePlanError } from "@/lib/tree";
@@ -13,6 +13,8 @@ export const maxDuration = 60;
  * when there is one, detect the entry point, write the metadata.
  */
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
+  const blocked = configurationResponse();
+  if (blocked) return blocked;
   try {
     assertSameOrigin(request);
     const ownerId = await readOwnerId();

@@ -23,6 +23,9 @@ import { tooLarge, type ByteRange, type Storage, type StoredBody, type StoredObj
  *    function request body at 4.5 MB, so proxying a ZIP or a video would simply
  *    not work; server-side `put()` here is only used for small generated files.
  */
+/** Never buffer more than this just to look at part of an object. */
+const WHOLE_OBJECT_CEILING = 8 * 1024 * 1024;
+
 export class BlobStorage implements Storage {
   readonly driver = "blob" as const;
   private readonly token?: string;
@@ -124,6 +127,67 @@ export class BlobStorage implements Storage {
     try {
       const result = await head(safeRelativePath(key), this.options());
       return { size: result.size, contentType: result.contentType };
+    } catch {
+      return null;
+    }
+  }
+
+  async readPrefix(key: string, maxBytes: number): Promise<Uint8Array | null> {
+    const pathname = safeRelativePath(key);
+    const meta = await this.headObject(pathname);
+    if (!meta) return null;
+    if (meta.size <= maxBytes) {
+      const whole = await this.getObject(pathname);
+      if (!whole) return null;
+      return new Uint8Array(await new Response(whole.body).arrayBuffer());
+    }
+    // Public blob URLs honour Range, so the head of a 40 MB document costs 2 MB.
+    const url = await this.publicUrl(pathname);
+    if (url) {
+      try {
+        const response = await fetch(url, { headers: { range: `bytes=0-${maxBytes - 1}` } });
+        if (response.ok) return new Uint8Array(await response.arrayBuffer());
+      } catch {
+        /* fall through */
+      }
+    }
+    // No range support and no URL: only worth buffering when the object is small
+    // enough to be safe inside a function.
+    if (meta.size > WHOLE_OBJECT_CEILING) return null;
+    const fallback = await this.getObject(pathname);
+    if (!fallback) return null;
+    const bytes = new Uint8Array(await new Response(fallback.body).arrayBuffer());
+    return bytes.slice(0, maxBytes);
+  }
+
+  async readSuffix(key: string, maxBytes: number): Promise<Uint8Array | null> {
+    const pathname = safeRelativePath(key);
+    const meta = await this.headObject(pathname);
+    if (!meta) return null;
+    if (meta.size <= maxBytes) return this.readPrefix(pathname, maxBytes);
+    const url = await this.publicUrl(pathname);
+    if (url) {
+      try {
+        // A suffix range is one request and never touches the middle of the file.
+        const response = await fetch(url, { headers: { range: `bytes=-${maxBytes}` } });
+        if (response.ok) return new Uint8Array(await response.arrayBuffer());
+      } catch {
+        /* fall through */
+      }
+    }
+    // The SDK cannot seek, so a full read is the only fallback — refuse it for
+    // anything that would not fit comfortably in a function's memory.
+    if (meta.size > WHOLE_OBJECT_CEILING) return null;
+    const all = await this.getObject(pathname);
+    if (!all) return null;
+    const bytes = new Uint8Array(await new Response(all.body).arrayBuffer());
+    return bytes.slice(Math.max(0, bytes.byteLength - maxBytes));
+  }
+
+  async publicUrl(key: string): Promise<string | null> {
+    try {
+      const result = await head(safeRelativePath(key), this.options());
+      return result.url || null;
     } catch {
       return null;
     }

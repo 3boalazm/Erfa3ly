@@ -27,6 +27,25 @@ export const limits = {
 
 export const dataDir = path.resolve(process.env.ERFA3LY_DATA_DIR || "./.erfa3ly-data");
 
+/**
+ * Serving strategy for the preview route.
+ *
+ * `inlineMaxBytes` is the largest HTML document rewritten in memory (that is how
+ * `<base>` and the storage shim are injected). Above it the document is either
+ * streamed untouched or redirected to the storage provider's own URL — because
+ * pushing 40 MB through a serverless function is how a page ends up blank after
+ * the platform's timeout.
+ */
+export const preview = {
+  inlineMaxBytes: num("ERFA3LY_MAX_INLINE_BYTES", 8 * MiB),
+  /** Assets at least this large are redirected to storage when possible. */
+  assetRedirectMinBytes: num("ERFA3LY_ASSET_REDIRECT_MIN_BYTES", MiB),
+  /** `ERFA3LY_DIRECT_ASSETS=off` disables asset redirects (keeps everything same-origin). */
+  directAssets: (process.env.ERFA3LY_DIRECT_ASSETS || "on").trim().toLowerCase() !== "off",
+  /** How much of a document the diagnostics read when inspecting its head. */
+  diagnosePrefixBytes: num("ERFA3LY_DIAGNOSE_PREFIX_BYTES", 2 * MiB),
+} as const;
+
 export const blobToken = (process.env.BLOB_READ_WRITE_TOKEN || "").trim();
 export const blobStoreId = (process.env.BLOB_STORE_ID || "").trim();
 const oidcToken = (process.env.VERCEL_OIDC_TOKEN || "").trim();

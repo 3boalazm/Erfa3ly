@@ -38,6 +38,26 @@ export interface WorkspaceSite {
   files: { path: string; size: number; mime: string }[];
 }
 
+export interface DiagnosisReport {
+  generatedAt: string;
+  requestId: string;
+  version: { id: string; entryPath: string; fileCount: number; byteSize: number; source: string };
+  scan: { missing: string[]; absolute: string[]; opaqueApis: string[]; hints: string[]; scannedBytes: number; truncated: boolean };
+  delivery: {
+    url: string;
+    status: number | null;
+    contentType: string | null;
+    contentLength: number | null;
+    servedBy: string | null;
+    sandboxed: boolean;
+    injected: boolean;
+    ms: number | null;
+    error: string | null;
+  };
+  assets: { reference: string; resolved: string | null; status: number | null; bytes: number | null }[];
+  verdicts: { code: string; level: "error" | "warn" | "info"; message: string }[];
+}
+
 export interface PreviewDiagnosisProps {
   missing: string[];
   absolute: string[];
@@ -72,6 +92,8 @@ export function SiteWorkspace({ lang, site, retentionDays, diagnosis, previewOri
   const [editing, setEditing] = useState(false);
   const [html, setHtml] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [diagnosisReport, setDiagnosisReport] = useState<DiagnosisReport | null>(null);
+  const [diagnosing, setDiagnosing] = useState(false);
 
   const rawPath = `/api/raw/${site.id}/current/${site.entryPath}`;
   // On a configured preview hostname the artifact gets a real origin, so the
@@ -122,6 +144,27 @@ export function SiteWorkspace({ lang, site, retentionDays, diagnosis, previewOri
       setNotice(t(lang, "linkCopied"));
       await copy(`${window.location.origin}/v/${body.token}`, body.token);
     }
+  }
+
+  async function runDiagnosis() {
+    setDiagnosing(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/sites/${site.id}/diagnose?lang=${lang}`);
+      const body = (await response.json()) as DiagnosisReport & { error?: string };
+      if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
+      setDiagnosisReport(body);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "diagnosis failed");
+    } finally {
+      setDiagnosing(false);
+    }
+  }
+
+  async function copyReport() {
+    if (!diagnosisReport) return;
+    await copy(JSON.stringify(diagnosisReport, null, 2), "diagnosis");
+    setNotice(t(lang, "diagnoseCopied"));
   }
 
   async function openEditor() {
@@ -258,6 +301,128 @@ export function SiteWorkspace({ lang, site, retentionDays, diagnosis, previewOri
         <p className="muted" style={{ fontSize: 12, margin: "8px 0 0" }}>
           {t(lang, "widthNote")}
         </p>
+      </section>
+
+      <section className="panel" style={{ padding: 14 }}>
+        <div className="row" style={{ justifyContent: "space-between", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+          <span className="section-title">{t(lang, "diagnoseTitle")}</span>
+          <div className="row" style={{ gap: 6 }}>
+            <button type="button" className="btn btn-sm btn-primary" disabled={diagnosing} onClick={() => void runDiagnosis()}>
+              {diagnosing ? t(lang, "diagnoseRunning") : t(lang, "diagnoseRun")}
+            </button>
+            {diagnosisReport ? (
+              <button type="button" className="btn btn-sm" onClick={() => void copyReport()}>
+                {copied === "diagnosis" ? t(lang, "diagnoseCopied") : t(lang, "diagnoseCopy")}
+              </button>
+            ) : null}
+          </div>
+        </div>
+        <p className="muted" style={{ fontSize: 12.5, margin: "0 0 10px", lineHeight: 1.8 }}>
+          {t(lang, "diagnoseHint")}
+        </p>
+
+        {diagnosisReport ? (
+          <div style={{ display: "grid", gap: 10 }}>
+            <div>
+              <div className="label">{t(lang, "diagnoseVerdicts")}</div>
+              <div style={{ display: "grid", gap: 6 }}>
+                {diagnosisReport.verdicts.map((verdict) => (
+                  <div
+                    key={verdict.code}
+                    className="panel-soft"
+                    style={{
+                      padding: 9,
+                      fontSize: 12.5,
+                      lineHeight: 1.8,
+                      borderColor:
+                        verdict.level === "error"
+                          ? "rgba(243,111,111,.35)"
+                          : verdict.level === "warn"
+                            ? "rgba(246,193,119,.3)"
+                            : "var(--line)",
+                    }}
+                  >
+                    <span className="mono" style={{ fontSize: 11, opacity: 0.7 }}>
+                      {verdict.code}
+                    </span>
+                    <div>{verdict.message}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <div className="label">{t(lang, "diagnoseDelivery")}</div>
+              <table className="files">
+                <tbody>
+                  <tr>
+                    <td>{t(lang, "diagnoseStatus")}</td>
+                    <td className="mono">{diagnosisReport.delivery.status ?? "—"}</td>
+                  </tr>
+                  <tr>
+                    <td>{t(lang, "diagnoseType")}</td>
+                    <td className="mono">{diagnosisReport.delivery.contentType ?? "—"}</td>
+                  </tr>
+                  <tr>
+                    <td>{t(lang, "diagnoseSize")}</td>
+                    <td className="mono">{formatBytes(diagnosisReport.delivery.contentLength ?? 0)}</td>
+                  </tr>
+                  <tr>
+                    <td>{t(lang, "diagnoseServed")}</td>
+                    <td className="mono">{diagnosisReport.delivery.servedBy ?? "—"}</td>
+                  </tr>
+                  <tr>
+                    <td>{t(lang, "diagnoseInjected")}</td>
+                    <td className="mono">{diagnosisReport.delivery.injected ? t(lang, "diagnoseYes") : t(lang, "diagnoseNo")}</td>
+                  </tr>
+                  <tr>
+                    <td>{t(lang, "diagnoseScanned")}</td>
+                    <td className="mono">
+                      {formatBytes(diagnosisReport.scan.scannedBytes)}
+                      {diagnosisReport.scan.truncated ? " (partial)" : ""}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>{t(lang, "diagnoseMs")}</td>
+                    <td className="mono">{diagnosisReport.delivery.ms ?? "—"} ms</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            {diagnosisReport.assets.length > 0 ? (
+              <div>
+                <div className="label">{t(lang, "diagnoseAssets")}</div>
+                <table className="files">
+                  <thead>
+                    <tr>
+                      <th>{t(lang, "fileList")}</th>
+                      <th style={{ width: 70 }}>{t(lang, "diagnoseStatus")}</th>
+                      <th style={{ width: 80 }}>{t(lang, "diagnoseSize")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {diagnosisReport.assets.map((asset) => (
+                      <tr key={asset.reference}>
+                        <td className="mono" style={{ overflowWrap: "anywhere" }}>
+                          {asset.reference}
+                        </td>
+                        <td className="mono" style={{ color: asset.status === 200 ? "var(--accent)" : "var(--danger)" }}>
+                          {asset.status ?? "—"}
+                        </td>
+                        <td className="mono">{asset.bytes ? formatBytes(asset.bytes) : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+
+            <p className="muted" style={{ fontSize: 11.5, margin: 0, lineHeight: 1.8 }}>
+              {t(lang, "diagnoseLogHint")} · requestId: <span className="mono">{diagnosisReport.requestId}</span>
+            </p>
+          </div>
+        ) : null}
       </section>
 
       <div style={{ display: "grid", gap: 14, gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))" }}>

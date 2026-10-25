@@ -207,6 +207,26 @@ curl -s https://<نطاقك>/api/health | jq
 بدون هذا المتغير يظل العزل الافتراضي (أصل غامض) ويعرض الـ dashboard تنبيهاً بدل
 معاينة صامتة.
 
+### تحذير `SECURITY WARNING: The SSL modes 'prefer', 'require', and 'verify-ca'…`
+
+هذا تحذير من `pg-connection-string` يظهر بجوار كل طلب، ولوحة Vercel تعرضه في مستوى
+`error` فيبدو عطلاً — وهو ليس عطلاً. سببه أن `sslmode=require` في `DATABASE_URL` سيغيّر
+معناه في pg v9.
+
+النسخة الحالية تحسم TLS في مكان واحد (`src/lib/db-tls.ts`) وتزيل `sslmode` من الرابط
+قبل تمريره إلى `pg`، فيختفي التحذير ولا يتغيّر السلوك:
+
+| في الرابط أو البيئة | النتيجة |
+| --- | --- |
+| `sslmode=disable` / `allow` | بلا TLS |
+| `sslmode=verify-full` / `verify-ca` | TLS مع التحقق من الشهادة |
+| `sslmode=require` / `prefer` أو بلا `sslmode` | TLS بلا تحقق من الشهادة |
+| مضيف loopback | بلا TLS |
+| `ERFA3LY_DB_SSL=verify-full` | يفرض التحقق دائماً |
+
+يعرض `/api/health` النمط الفعّال في `databaseTls`. إن كانت قاعدة البيانات بشهادة موقّعة
+ذاتياً ولم تعمل الاتصالات، استخدم `ERFA3LY_DB_SSL=require`.
+
 ### أخطاء أخرى متوقعة
 
 | الرسالة | السبب | الحل |

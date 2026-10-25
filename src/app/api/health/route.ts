@@ -1,4 +1,5 @@
 import { blobAuth, blobStoreId, databaseUrl, databaseUrlSource, isVercel, previewOrigin, runtimeProblems, storageDriver } from "@/lib/config";
+import { resolveDatabaseTls } from "@/lib/db-tls";
 import { jsonNoStore } from "@/lib/http";
 
 export const runtime = "nodejs";
@@ -18,6 +19,7 @@ export async function GET() {
       storage: storageDriver,
       database: databaseUrl ? "postgres" : isVercel ? "missing" : "pglite",
       databaseVariable: databaseUrlSource(),
+      databaseTls: databaseUrl ? resolveDatabaseTls(databaseUrl).mode : null,
       blobAuth,
       blobStoreIdPresent: Boolean(blobStoreId),
       previewOrigin: previewOrigin || null,

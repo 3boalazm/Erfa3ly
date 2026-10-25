@@ -1,6 +1,7 @@
 import "server-only";
 import path from "node:path";
 import { dataDir, databaseUrl, isVercel } from "@/lib/config";
+import { resolveDatabaseTls } from "@/lib/db-tls";
 import { SCHEMA_SQL } from "@/lib/schema";
 
 /**
@@ -24,11 +25,14 @@ const globalForDb = globalThis as unknown as { __erfa3lyDb?: Promise<SqlClient> 
 async function connect(): Promise<SqlClient> {
   if (databaseUrl) {
     const { Pool } = await import("pg");
-    const needsSsl = !/localhost|127\.0\.0\.1|::1/.test(databaseUrl) && !/[?&]sslmode=disable/.test(databaseUrl);
+    // TLS is decided in one place and stripped from the string, so pg never
+    // prints its sslmode deprecation warning on every request.
+    const tls = resolveDatabaseTls(databaseUrl);
     const pool = new Pool({
-      connectionString: databaseUrl,
+      connectionString: tls.connectionString,
       max: Number(process.env.ERFA3LY_PG_POOL_MAX || 5),
-      ssl: needsSsl ? { rejectUnauthorized: false } : undefined,
+      ssl: tls.ssl || undefined,
+      application_name: "erfa3ly",
       idleTimeoutMillis: 10_000,
       connectionTimeoutMillis: 10_000,
     });

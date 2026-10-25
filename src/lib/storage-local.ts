@@ -82,6 +82,52 @@ export class LocalStorage implements Storage {
     }
   }
 
+  async readPrefix(key: string, maxBytes: number): Promise<Uint8Array | null> {
+    const target = this.pathFor(key);
+    let info;
+    try {
+      info = await stat(target);
+    } catch {
+      return null;
+    }
+    return new Promise((resolve) => {
+      const chunks: Buffer[] = [];
+      let total = 0;
+      const stream = createReadStream(target, { start: 0, end: Math.min(maxBytes, info.size) - 1 });
+      stream.on("data", (chunk) => {
+        chunks.push(chunk as Buffer);
+        total += (chunk as Buffer).byteLength;
+        if (total >= maxBytes) stream.destroy();
+      });
+      stream.on("close", () => resolve(new Uint8Array(Buffer.concat(chunks))));
+      stream.on("error", () => resolve(null));
+    });
+  }
+
+  async readSuffix(key: string, maxBytes: number): Promise<Uint8Array | null> {
+    const target = this.pathFor(key);
+    let info;
+    try {
+      info = await stat(target);
+    } catch {
+      return null;
+    }
+    const start = Math.max(0, info.size - maxBytes);
+    const chunks: Buffer[] = [];
+    await new Promise<void>((resolve, reject) => {
+      const stream = createReadStream(target, { start });
+      stream.on("data", (chunk) => chunks.push(chunk as Buffer));
+      stream.on("end", () => resolve());
+      stream.on("error", reject);
+    });
+    return new Uint8Array(Buffer.concat(chunks));
+  }
+
+  /** Local disk has no public URL; the route streams instead of redirecting. */
+  async publicUrl(): Promise<string | null> {
+    return null;
+  }
+
   async removeObject(key: string): Promise<void> {
     await rm(this.pathFor(key), { force: true });
   }

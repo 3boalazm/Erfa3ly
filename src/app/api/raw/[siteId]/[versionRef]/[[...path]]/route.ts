@@ -2,8 +2,9 @@ import { isHtml, isInlineRenderable, mimeFor } from "@/lib/mime";
 import { resolvePreviewTarget } from "@/lib/sites";
 import { getStorage } from "@/lib/storage";
 import { safeRelativePath, UnsafePathError, versionKey } from "@/lib/paths";
-import { publicOrigin } from "@/lib/config";
+import { preview as previewConfig, publicOrigin } from "@/lib/config";
 import { isPreviewRequest } from "@/lib/request-host";
+import { logger, requestId } from "@/lib/log";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,8 +43,22 @@ export async function OPTIONS() {
 
 async function serve(request: Request, context: RouteContext, headOnly: boolean): Promise<Response> {
   const { siteId, versionRef, path: segments } = await context.params;
+  const reqId = requestId(request.headers);
+  const log = logger("preview", { reqId, siteId, versionRef, head: headOnly });
+  log.info("request", { path: `/${(segments ?? []).join("/")}`, host: request.headers.get("x-forwarded-host") || request.headers.get("host") });
+
   const target = await resolvePreviewTarget(siteId, versionRef);
-  if (!target) return notFound();
+  if (!target) {
+    log.warn("no such site or version");
+    return notFound(reqId);
+  }
+  log.debug("resolved", {
+    versionId: target.version.id,
+    entry: target.version.entryPath,
+    rootPrefix: target.version.rootPrefix,
+    files: target.version.fileCount,
+    bytes: target.version.byteSize,
+  });
 
   let rel: string;
   try {
@@ -56,7 +71,10 @@ async function serve(request: Request, context: RouteContext, headOnly: boolean)
       rel = safeRelativePath(raw);
     }
   } catch (error) {
-    if (error instanceof UnsafePathError) return plain("bad path", 400);
+    if (error instanceof UnsafePathError) {
+      log.warn("unsafe path", { raw: (segments ?? []).join("/") });
+      return plain("bad path", 400, reqId);
+    }
     throw error;
   }
 
@@ -69,12 +87,16 @@ async function serve(request: Request, context: RouteContext, headOnly: boolean)
   let meta: { size: number; contentType: string } | null = null;
   for (const candidate of [rel, `${rel}/index.html`, `${rel}.html`]) {
     meta = await storage.headObject(keyFor(candidate));
+    log.debug("probe", { candidate, found: Boolean(meta), bytes: meta?.size });
     if (meta) {
       resolvedPath = candidate;
       break;
     }
   }
-  if (!meta) return notFound();
+  if (!meta) {
+    log.warn("file not found in version", { requested: rel });
+    return notFound(reqId);
+  }
 
   const mime = mimeFor(resolvedPath);
   // A separate preview hostname means the artifact gets a real origin (storage and
@@ -97,13 +119,45 @@ async function serve(request: Request, context: RouteContext, headOnly: boolean)
     versionRef === "current" ? "no-cache, must-revalidate" : "public, max-age=31536000, immutable",
   );
 
+  const baseHeadersForResponse = headers;
+  baseHeadersForResponse.set("x-erfa3ly-request-id", reqId);
+
+  // ---- how to move these bytes ------------------------------------------------
+  // Heavy HTML and heavy assets are redirected to the storage provider's own URL
+  // when it has one: a serverless function has a wall clock, and a 40 MB page
+  // that takes longer than it is a blank frame in the browser.
+  const wantsRedirect =
+    (isHtml(resolvedPath) && meta.size > previewConfig.inlineMaxBytes) ||
+    (!isHtml(resolvedPath) && previewConfig.directAssets && meta.size >= previewConfig.assetRedirectMinBytes);
+  if (wantsRedirect && !headOnly) {
+    const direct = await storage.publicUrl(keyFor(resolvedPath));
+    // A private store still hands back a URL, but the browser cannot read it. One
+    // HEAD tells us whether the redirect will actually work instead of sending the
+    // frame to a 401.
+    const reachable = direct ? await probeDirect(direct) : false;
+    if (direct && !reachable) log.warn("storage URL is not publicly readable; streaming instead", { path: resolvedPath });
+    if (direct && reachable) {
+      log.info("redirect to storage", { path: resolvedPath, bytes: meta.size, requestId: reqId });
+      headers.set("Location", direct);
+      headers.set("x-erfa3ly-served-by", "redirect");
+      headers.set("Cache-Control", "no-store");
+      // The sandbox CSP cannot travel with a redirect: the browser loads the
+      // object from the provider's origin. Isolation still holds — that origin
+      // is not ours, carries none of our cookies, and the embedding iframe keeps
+      // its sandbox attribute.
+      headers.delete("Content-Security-Policy");
+      return new Response(null, { status: 302, headers });
+    }
+    log.debug("redirect requested but backend has no public URL", { path: resolvedPath });
+  }
+
   const range = resolveRange(request.headers.get("range"), meta.size);
   if (range) {
     headers.set("Content-Range", `bytes ${range.start}-${range.end}/${meta.size}`);
     headers.set("Content-Length", String(range.end - range.start + 1));
     if (headOnly) return new Response(null, { status: 206, headers });
     const partial = await storage.getObject(keyFor(resolvedPath), range);
-    if (!partial) return notFound();
+    if (!partial) return notFound(reqId);
     return new Response(partial.body, { status: 206, headers });
   }
 
@@ -114,9 +168,9 @@ async function serve(request: Request, context: RouteContext, headOnly: boolean)
 
   // HTML is small enough in practice to rewrite in memory; that is where the
   // storage shim is injected. Anything bigger streams untouched.
-  if (isHtml(resolvedPath) && meta.size <= 8 * 1024 * 1024) {
+  if (isHtml(resolvedPath) && meta.size <= previewConfig.inlineMaxBytes) {
     const full = await storage.getObject(keyFor(resolvedPath));
-    if (!full) return notFound();
+    if (!full) return notFound(reqId);
     const bytes = new Uint8Array(await new Response(full.body).arrayBuffer());
     const injected = injectShim(new TextDecoder().decode(bytes), {
       siteRoot: `/api/raw/${siteId}/${versionRef}/`,
@@ -127,12 +181,20 @@ async function serve(request: Request, context: RouteContext, headOnly: boolean)
     });
     const encoded = new TextEncoder().encode(injected);
     headers.set("Content-Length", String(encoded.byteLength));
+    headers.set("x-erfa3ly-served-by", "inject");
+    log.info("served html with injection", {
+      path: resolvedPath,
+      bytes: meta.size,
+      injected: injected.length !== bytes.byteLength,
+    });
     return new Response(encoded, { status: 200, headers });
   }
 
   const object = await storage.getObject(keyFor(resolvedPath));
-  if (!object) return notFound();
+  if (!object) return notFound(reqId);
   headers.set("Content-Length", String(object.size));
+  headers.set("x-erfa3ly-served-by", "stream");
+  log.info("streamed", { path: resolvedPath, bytes: object.size, ms: log.elapsed() });
   return new Response(object.body, { status: 200, headers });
 }
 
@@ -163,15 +225,28 @@ function baseHeaders(realOrigin = false): Headers {
   return headers;
 }
 
-function plain(message: string, status: number): Response {
-  return new Response(message, {
-    status,
-    headers: { ...Object.fromEntries(baseHeaders()), "Content-Type": "text/plain; charset=utf-8", "Content-Length": String(message.length) },
-  });
+function plain(message: string, status: number, reqId?: string): Response {
+  const headers: Record<string, string> = {
+    ...Object.fromEntries(baseHeaders()),
+    "Content-Type": "text/plain; charset=utf-8",
+    "Content-Length": String(message.length),
+  };
+  if (reqId) headers["x-erfa3ly-request-id"] = reqId;
+  return new Response(message, { status, headers });
 }
 
-function notFound(): Response {
-  return plain("Not found", 404);
+async function probeDirect(url: string): Promise<boolean> {
+  try {
+    const response = await fetch(url, { method: "HEAD", cache: "no-store" });
+    await response.body?.cancel().catch(() => {});
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+function notFound(reqId?: string): Response {
+  return plain("Not found", 404, reqId);
 }
 
 /** `bytes=0-`, `bytes=100-200`, `bytes=-500` (last N bytes) — or null. */

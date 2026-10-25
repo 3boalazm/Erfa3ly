@@ -353,6 +353,39 @@ export async function publishHtml(input: {
   return written;
 }
 
+/**
+ * First `maxBytes` of one file of a version. Diagnostics use it so a 40 MB
+ * document can be inspected for its `head` without downloading the whole thing.
+ */
+export async function readVersionPrefix(
+  siteId: string,
+  version: VersionSummary,
+  relpath: string,
+  maxBytes: number,
+): Promise<{ bytes: Uint8Array; size: number } | null> {
+  const storage = getStorage();
+  const key = versionKey(siteId, version.id, `${version.rootPrefix}${relpath}`);
+  const meta = await storage.headObject(key);
+  if (!meta) return null;
+  const bytes = await storage.readPrefix(key, maxBytes);
+  return bytes ? { bytes, size: meta.size } : null;
+}
+
+/** Last `maxBytes` of one version file, for scanning the script end of a document. */
+export async function readVersionSuffix(
+  siteId: string,
+  version: VersionSummary,
+  relpath: string,
+  maxBytes: number,
+): Promise<{ bytes: Uint8Array; size: number } | null> {
+  const storage = getStorage();
+  const key = versionKey(siteId, version.id, `${version.rootPrefix}${relpath}`);
+  const meta = await storage.headObject(key);
+  if (!meta) return null;
+  const bytes = await storage.readSuffix(key, maxBytes);
+  return bytes ? { bytes, size: meta.size } : null;
+}
+
 export async function readVersionFile(
   siteId: string,
   version: VersionSummary,

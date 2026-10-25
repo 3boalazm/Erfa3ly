@@ -2,8 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getLang } from "@/lib/i18n-server";
 import { readOwnerId } from "@/lib/auth";
-import { getFileList, getSiteDetail, readVersionFile } from "@/lib/sites";
-import { limits, previewOrigin } from "@/lib/config";
+import { getFileList, getSiteDetail, readVersionPrefix } from "@/lib/sites";
+import { limits, preview, previewOrigin } from "@/lib/config";
 import { diagnosePreview, type PreviewDiagnosis } from "@/lib/assets";
 import { formatBytes, t } from "@/lib/i18n";
 import { SiteWorkspace, type WorkspaceSite } from "@/components/site-workspace";
@@ -21,15 +21,17 @@ export default async function SitePage({ params }: { params: Promise<{ id: strin
 
   const files = site.current ? await getFileList(site.current.id) : [];
 
-  // Explain a blank preview instead of showing one: read the entry document and
+  // Explain a blank preview instead of showing one: scan the entry document and
   // check every local reference against the files this version actually has.
+  // Only a prefix is read, so a 40 MB page is still inspected (the head is where
+  // stylesheets and scripts are declared).
   let diagnosis: PreviewDiagnosis | null = null;
-  if (site.current && /html?$/i.test(site.entryPath) && site.byteSize <= 4 * 1024 * 1024) {
+  if (site.current && /html?$/i.test(site.entryPath)) {
     try {
-      const entry = await readVersionFile(site.id, site.current, site.entryPath);
-      if (entry) {
+      const head = await readVersionPrefix(site.id, site.current, site.entryPath, preview.diagnosePrefixBytes);
+      if (head) {
         diagnosis = diagnosePreview({
-          html: new TextDecoder().decode(entry.bytes),
+          html: new TextDecoder().decode(head.bytes),
           entryPath: site.entryPath,
           files: files.map((file) => file.path),
         });

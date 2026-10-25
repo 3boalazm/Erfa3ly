@@ -1,5 +1,6 @@
 import { blobAuth, blobStoreId, databaseUrl, databaseUrlSource, isVercel, previewOrigin, runtimeProblems, storageDriver } from "@/lib/config";
 import { resolveDatabaseTls } from "@/lib/db-tls";
+import { logLevel } from "@/lib/log";
 import { jsonNoStore } from "@/lib/http";
 
 export const runtime = "nodejs";
@@ -23,6 +24,7 @@ export async function GET() {
       blobAuth,
       blobStoreIdPresent: Boolean(blobStoreId),
       previewOrigin: previewOrigin || null,
+      logLevel: logLevel(),
       problems,
     },
     { status: problems.length === 0 ? 200 : 503 },

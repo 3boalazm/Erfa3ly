@@ -39,6 +39,22 @@ export interface Storage {
   getObject(key: string, range?: ByteRange): Promise<StoredBody | null>;
   /** Size + type without downloading. */
   headObject(key: string): Promise<{ size: number; contentType: string } | null>;
+  /**
+   * First `maxBytes` of an object. Used to inspect a huge document's `<head>`
+   * without pulling tens of megabytes into a function.
+   */
+  readPrefix(key: string, maxBytes: number): Promise<Uint8Array | null>;
+  /**
+   * Last `maxBytes` of an object. Scripts sit at the end of the document, and a
+   * 40 MB page's blank cause is usually in those last kilobytes.
+   */
+  readSuffix(key: string, maxBytes: number): Promise<Uint8Array | null>;
+  /**
+   * A URL the browser can fetch directly from the storage provider, or null when
+   * the backend has none (local disk). Large artifacts are redirected here so a
+   * 40 MB page does not have to be streamed through a serverless function.
+   */
+  publicUrl(key: string): Promise<string | null>;
   removeObject(key: string): Promise<void>;
   /** Every object under a prefix, with sizes. */
   listObjects(prefix: string): Promise<StoredObject[]>;

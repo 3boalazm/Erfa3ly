@@ -126,6 +126,16 @@ const ar = {
   configDb: "لا يوجد رابط قاعدة بيانات (DATABASE_URL أو POSTGRES_URL) — البيانات تحتاج Postgres في الإنتاج.",
   configHow: "Vercel → Storage → Blob و Postgres، ثم Settings → Environment Variables، ثم Deployments → Redeploy.",
   uploadDisabled: "الرفع معطّل حتى يكتمل الإعداد",
+  fixMissingTitle: "ملفات مفقودة داخل هذا الإصدار",
+  fixMissingBody: "{n} مرجعاً في الصفحة (CSS أو JS أو صور) لا يوجد له ملف هنا. الغالب أن الرفع اقتصر على ملف HTML واحد بينما الموقع يعتمد على مجلد أصول بجانبه — ارفع المجلد كاملاً أو ملف ZIP.",
+  fixAbsoluteTitle: "مسارات تبدأ من جذر النطاق",
+  fixAbsoluteBody: "{n} مرجعاً يبدأ بـ / (مثل /assets/style.css) ولا يمكن أن يعمل على عنوان المعاينة. حوّلها إلى مسارات نسبية أو ارفع الموقع عبر ZIP مع نسخة معدّلة.",
+  fixStorageTitle: "الصفحة تحتاج صلاحيات لا يمنحها الإطار المعزول",
+  fixStorageBody: "تستخدم الصفحة: {apis}. هذه الواجهات ممنوعة في الأصل المعزول (opaque origin) وقد تتوقف الصفحة عند أول سطر فتبدو فارغة. الحل: اضبط ERFA3LY_PREVIEW_ORIGIN على نطاق فرعي منفصل يشير إلى هذا النشر نفسه.",
+  fixExamples: "أمثلة",
+  previewSandboxed: "معاينة معزولة (أصل غامض)",
+  previewRealOrigin: "معاينة من نطاق منفصل",
+
   errTooLarge: "الملف أكبر من الحد المسموح (أو تجاوز سقف جسم الطلب). جرّب ملفاً أصغر، أو أضف متجر Blob ليعمل الرفع المباشر.",
   errBlobRequired: "هذا النشر لا يستقبل الرفع عبر الخادم: يجب ربط متجر Blob أولاً ثم إعادة النشر.",
 
@@ -258,6 +268,16 @@ const en: Record<StringKey, string> = {
   configDb: "No database connection string (DATABASE_URL or POSTGRES_URL) — production metadata needs Postgres.",
   configHow: "Vercel → Storage → Blob and Postgres, then Settings → Environment Variables, then Deployments → Redeploy.",
   uploadDisabled: "Uploads are disabled until setup is complete",
+  fixMissingTitle: "Files missing from this version",
+  fixMissingBody: "{n} references in the page (CSS, JS, images) have no matching file here. Most likely only the HTML was uploaded while the site depends on an assets folder next to it — upload the whole folder or a ZIP.",
+  fixAbsoluteTitle: "References from the domain root",
+  fixAbsoluteBody: "{n} references start with / (e.g. /assets/style.css) and cannot resolve on a preview URL. Make them relative, or upload a ZIP whose paths were rewritten.",
+  fixStorageTitle: "The page needs capabilities the sandbox denies",
+  fixStorageBody: "The page uses: {apis}. Those APIs throw in an opaque origin, so the first script line can stop and the page stays blank. Fix: set ERFA3LY_PREVIEW_ORIGIN to a separate hostname pointing at this same deployment.",
+  fixExamples: "Examples",
+  previewSandboxed: "Sandboxed preview (opaque origin)",
+  previewRealOrigin: "Preview on a separate origin",
+
   errTooLarge: "The file is over the allowed limit (or the request body exceeded the platform cap). Try a smaller file, or connect a Blob store so direct uploads work.",
   errBlobRequired: "This deployment does not accept server-side uploads: connect a Blob store and redeploy first.",
 

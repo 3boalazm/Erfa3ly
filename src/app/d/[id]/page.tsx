@@ -2,8 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getLang } from "@/lib/i18n-server";
 import { readOwnerId } from "@/lib/auth";
-import { getFileList, getSiteDetail } from "@/lib/sites";
-import { limits } from "@/lib/config";
+import { getFileList, getSiteDetail, readVersionFile } from "@/lib/sites";
+import { limits, previewOrigin } from "@/lib/config";
+import { diagnosePreview, type PreviewDiagnosis } from "@/lib/assets";
 import { formatBytes, t } from "@/lib/i18n";
 import { SiteWorkspace, type WorkspaceSite } from "@/components/site-workspace";
 
@@ -19,6 +20,24 @@ export default async function SitePage({ params }: { params: Promise<{ id: strin
   if (!site) notFound();
 
   const files = site.current ? await getFileList(site.current.id) : [];
+
+  // Explain a blank preview instead of showing one: read the entry document and
+  // check every local reference against the files this version actually has.
+  let diagnosis: PreviewDiagnosis | null = null;
+  if (site.current && /html?$/i.test(site.entryPath) && site.byteSize <= 4 * 1024 * 1024) {
+    try {
+      const entry = await readVersionFile(site.id, site.current, site.entryPath);
+      if (entry) {
+        diagnosis = diagnosePreview({
+          html: new TextDecoder().decode(entry.bytes),
+          entryPath: site.entryPath,
+          files: files.map((file) => file.path),
+        });
+      }
+    } catch {
+      diagnosis = null;
+    }
+  }
 
   // Dates become ISO strings at the boundary: the client component should not
   // depend on how the runtime serialises Date.
@@ -73,7 +92,13 @@ export default async function SitePage({ params }: { params: Promise<{ id: strin
         </div>
       </div>
 
-      <SiteWorkspace lang={lang} site={workspace} retentionDays={limits.deletedRetentionDays} />
+      <SiteWorkspace
+        lang={lang}
+        site={workspace}
+        retentionDays={limits.deletedRetentionDays}
+        diagnosis={diagnosis}
+        previewOrigin={previewOrigin || null}
+      />
     </div>
   );
 }

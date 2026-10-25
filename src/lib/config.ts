@@ -133,6 +133,30 @@ export function assertUsableRuntime(): void {
   if (problems.length > 0) throw new Error(problems.join(" "));
 }
 
+/**
+ * Optional second origin for previews, e.g. `https://artifacts.example.com`
+ * pointing at this same deployment.
+ *
+ * Why it exists: an artifact rendered with CSP `sandbox` (and an iframe without
+ * `allow-same-origin`) has an *opaque* origin, and in that origin `localStorage`,
+ * `sessionStorage`, `indexedDB` and `history.replaceState` throw. Generated pages
+ * touch them all the time, so their first script line dies and the page stays
+ * blank. On a separate hostname the artifact gets a real origin — and because the
+ * dashboard's cookie is host-only, it still carries no session and cannot call
+ * the write API. Without this variable the platform keeps the sandbox and warns
+ * instead of pretending.
+ */
+export const previewOrigin = (process.env.ERFA3LY_PREVIEW_ORIGIN || "").trim().replace(/\/+$/, "");
+
+export function previewHost(): string | null {
+  if (!previewOrigin) return null;
+  try {
+    return new URL(previewOrigin).host;
+  } catch {
+    return null;
+  }
+}
+
 /** Public origin, when the deployment knows it (share links, absolute URLs). */
 export function publicOrigin(): string {
   const explicit = (process.env.ERFA3LY_PUBLIC_URL || "").trim();

@@ -1,4 +1,4 @@
-import { blobAuth, blobStoreId, databaseUrl, databaseUrlSource, isVercel, runtimeProblems, storageDriver } from "@/lib/config";
+import { blobAuth, blobStoreId, databaseUrl, databaseUrlSource, isVercel, previewOrigin, runtimeProblems, storageDriver } from "@/lib/config";
 import { jsonNoStore } from "@/lib/http";
 
 export const runtime = "nodejs";
@@ -20,6 +20,7 @@ export async function GET() {
       databaseVariable: databaseUrlSource(),
       blobAuth,
       blobStoreIdPresent: Boolean(blobStoreId),
+      previewOrigin: previewOrigin || null,
       problems,
     },
     { status: problems.length === 0 ? 200 : 503 },

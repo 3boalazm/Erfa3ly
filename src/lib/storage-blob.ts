@@ -1,6 +1,7 @@
 import "server-only";
 import { del, get, head, list, put } from "@vercel/blob";
 import { mimeFor } from "@/lib/mime";
+import { decodeBlobKey, encodeBlobKey } from "@/lib/blob-key";
 import { safeRelativePath } from "@/lib/paths";
 import { tooLarge, type ByteRange, type Storage, type StoredBody, type StoredObject } from "@/lib/storage-types";
 
@@ -49,7 +50,7 @@ export class BlobStorage implements Storage {
   }
 
   async putObject(key: string, bytes: Uint8Array, contentType: string): Promise<void> {
-    await put(safeRelativePath(key), Buffer.from(bytes), {
+    await put(blobPath(key), Buffer.from(bytes), {
       ...this.options(),
       addRandomSuffix: false,
       allowOverwrite: true,
@@ -85,7 +86,7 @@ export class BlobStorage implements Storage {
   }
 
   async getObject(key: string, range?: ByteRange): Promise<StoredBody | null> {
-    const pathname = safeRelativePath(key);
+    const pathname = blobPath(key);
     if (!range) {
       const result = await get(pathname, this.options());
       if (!result || result.statusCode !== 200) return null;
@@ -125,7 +126,7 @@ export class BlobStorage implements Storage {
 
   async headObject(key: string): Promise<{ size: number; contentType: string } | null> {
     try {
-      const result = await head(safeRelativePath(key), this.options());
+      const result = await head(blobPath(key), this.options());
       return { size: result.size, contentType: result.contentType };
     } catch {
       return null;
@@ -133,7 +134,7 @@ export class BlobStorage implements Storage {
   }
 
   async readPrefix(key: string, maxBytes: number): Promise<Uint8Array | null> {
-    const pathname = safeRelativePath(key);
+    const pathname = blobPath(key);
     const meta = await this.headObject(pathname);
     if (!meta) return null;
     if (meta.size <= maxBytes) {
@@ -161,7 +162,7 @@ export class BlobStorage implements Storage {
   }
 
   async readSuffix(key: string, maxBytes: number): Promise<Uint8Array | null> {
-    const pathname = safeRelativePath(key);
+    const pathname = blobPath(key);
     const meta = await this.headObject(pathname);
     if (!meta) return null;
     if (meta.size <= maxBytes) return this.readPrefix(pathname, maxBytes);
@@ -186,7 +187,7 @@ export class BlobStorage implements Storage {
 
   async publicUrl(key: string): Promise<string | null> {
     try {
-      const result = await head(safeRelativePath(key), this.options());
+      const result = await head(blobPath(key), this.options());
       return result.url || null;
     } catch {
       return null;
@@ -194,26 +195,36 @@ export class BlobStorage implements Storage {
   }
 
   async removeObject(key: string): Promise<void> {
-    await del(safeRelativePath(key), this.options());
+    await del(blobPath(key), this.options());
   }
 
-  async listObjects(prefix: string): Promise<StoredObject[]> {
+  /** Pathnames exactly as Blob stores them (encoded), for callers that must pass them back. */
+  private async listRaw(prefix: string): Promise<StoredObject[]> {
     const out: StoredObject[] = [];
     let cursor: string | undefined;
     do {
-      const page = await list({ prefix: safeRelativePath(prefix), cursor, ...this.options(), limit: 1000 });
+      const page = await list({ prefix: blobPath(prefix), cursor, ...this.options(), limit: 1000 });
       for (const blob of page.blobs) out.push({ key: blob.pathname, size: blob.size });
       cursor = page.hasMore ? page.cursor : undefined;
     } while (cursor);
     return out;
   }
 
+  async listObjects(prefix: string): Promise<StoredObject[]> {
+    return (await this.listRaw(prefix)).map((object) => ({ key: decodeBlobKey(object.key), size: object.size }));
+  }
+
   async removePrefix(prefix: string): Promise<number> {
-    const objects = await this.listObjects(prefix);
+    const objects = await this.listRaw(prefix);
     // del() takes up to 1000 URLs per call.
     for (let i = 0; i < objects.length; i += 1000) {
       await del(objects.slice(i, i + 1000).map((object) => object.key), this.options());
     }
     return objects.length;
   }
+}
+
+/** Storage key → Blob pathname: validated, then made ASCII-only (see blob-key.ts). */
+function blobPath(key: string): string {
+  return encodeBlobKey(safeRelativePath(key));
 }

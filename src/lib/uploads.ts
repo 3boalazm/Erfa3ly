@@ -3,6 +3,7 @@ import { asDate, asNumber, exec, one, rows, type Row } from "@/lib/db";
 import { assertUsableRuntime, blobUploadMode, limits, storageDriver } from "@/lib/config";
 import { createId } from "@/lib/ids";
 import { ApiError, badRequest, conflict, notFound } from "@/lib/http";
+import { decodeBlobKey } from "@/lib/blob-key";
 import { isJunkPath, safeRelativePath, versionPrefix } from "@/lib/paths";
 import { mimeFor } from "@/lib/mime";
 import { getStorage } from "@/lib/storage";
@@ -189,7 +190,8 @@ export async function authorizeBlobPathname(input: {
   const session = await getOpenSession(sessionId, input.ownerId);
   const prefix = `${session.prefix}/`;
   if (!input.pathname.startsWith(prefix)) throw badRequest("pathname outside this upload session");
-  const relpath = safeRelativePath(input.pathname.slice(prefix.length));
+  // The browser sends the ASCII-encoded Blob pathname (see blob-key.ts).
+  const relpath = safeRelativePath(decodeBlobKey(input.pathname.slice(prefix.length)));
   const declared = session.expectedFiles.find((target) => target.path === relpath);
   if (!declared) throw badRequest(`file was not declared in this session: ${relpath}`);
   return {

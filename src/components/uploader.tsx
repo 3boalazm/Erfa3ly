@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { encodeBlobKey } from "@/lib/blob-key";
 import { formatBytes, t, type Lang } from "@/lib/i18n";
 
 interface UploaderProps {
@@ -123,6 +124,8 @@ export function Uploader({ lang, driver, limits, usedBytes, problems }: Uploader
           };
           if (session.uploadMode === "blob-token" || session.uploadMode === "blob-presigned") {
             const client = await import("@vercel/blob/client");
+            // ASCII-only key: the Blob SDK mis-decodes non-ASCII pathnames in signed tokens.
+            const blobPathname = encodeBlobKey(`${session.prefix}/${item.path}`);
             const options = {
               access: "public" as const,
               // Where the server decides whether and where this upload may land.
@@ -135,8 +138,8 @@ export function Uploader({ lang, driver, limits, usedBytes, problems }: Uploader
               onUploadProgress: (event: { loaded: number }) => onProgress(event.loaded),
             };
             await (session.uploadMode === "blob-token"
-              ? client.upload(`${session.prefix}/${item.path}`, item.file, options)
-              : client.uploadPresigned(`${session.prefix}/${item.path}`, item.file, options));
+              ? client.upload(blobPathname, item.file, options)
+              : client.uploadPresigned(blobPathname, item.file, options));
           } else {
             await putWithProgress(
               `${session.fileUrl}?path=${encodeURIComponent(item.path)}`,

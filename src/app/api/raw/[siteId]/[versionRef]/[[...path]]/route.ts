@@ -105,7 +105,8 @@ async function serve(request: Request, context: RouteContext, headOnly: boolean)
   const headers = baseHeaders(onPreviewOrigin);
   headers.set("Content-Type", mime);
   headers.set("Accept-Ranges", "bytes");
-  headers.set("ETag", `"${target.version.id}-${resolvedPath}"`);
+  // Header values must be ASCII; file names may not be.
+  headers.set("ETag", `"${target.version.id}-${encodeURIComponent(resolvedPath)}"`);
   headers.set(
     "Content-Disposition",
     isInlineRenderable(mime)

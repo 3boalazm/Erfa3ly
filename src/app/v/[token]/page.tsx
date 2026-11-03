@@ -5,6 +5,7 @@ import { resolveShare } from "@/lib/shares";
 import { getVersionForSite } from "@/lib/sites";
 import { t } from "@/lib/i18n";
 import { previewOrigin } from "@/lib/config";
+import { PreviewFrame } from "@/components/preview-frame";
 
 export const dynamic = "force-dynamic";
 
@@ -75,15 +76,13 @@ export default async function SharePage({ params }: { params: Promise<{ token: s
         </div>
       </div>
       <div style={{ flex: 1, padding: "0 20px 20px" }}>
-        <div className="frame-shell" style={{ height: "calc(100vh - 190px)" }}>
-          <iframe
-            src={src}
-            title={share.siteTitle}
-            sandbox={sandbox}
-            style={{ height: "100%" }}
-            referrerPolicy="no-referrer"
-          />
-        </div>
+        <PreviewFrame
+          lang={lang}
+          src={src}
+          title={share.siteTitle}
+          sandbox={sandbox}
+          height="calc(100vh - 230px)"
+        />
       </div>
     </div>
   );

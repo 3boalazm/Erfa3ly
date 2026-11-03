@@ -59,6 +59,8 @@ const ar = {
   restored: "تم الاسترجاع",
   source: "المصدر",
   openRaw: "فتح الملف مباشرة",
+  fullscreen: "ملء الشاشة",
+  exitFullscreen: "إنهاء ملء الشاشة",
   widthNote: "المعاينة تعمل داخل إطار معزول بلا صلاحية الوصول إلى جلسة المنصة.",
 
   shareTitle: "روابط المشاركة",
@@ -222,6 +224,8 @@ const en: Record<StringKey, string> = {
   restored: "Restored",
   source: "Source",
   openRaw: "Open file directly",
+  fullscreen: "Fullscreen",
+  exitFullscreen: "Exit fullscreen",
   widthNote: "The preview runs in a sandboxed frame with no access to the platform session.",
 
   shareTitle: "Share links",

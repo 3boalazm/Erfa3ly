@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatBytes, t, type Lang } from "@/lib/i18n";
+import { PreviewFrame } from "@/components/preview-frame";
 
 export interface WorkspaceVersion {
   id: string;
@@ -285,19 +286,17 @@ export function SiteWorkspace({ lang, site, retentionDays, diagnosis, previewOri
             {t(lang, "openRaw")}
           </a>
         </div>
-        <div className="frame-shell">
-          <iframe
-            key={site.currentVersionId ?? "current"}
-            src={previewSrc}
-            title={site.title}
-            // No allow-same-origin: the document runs in an opaque origin and
-            // cannot reach this page's cookies or the API.
-            sandbox={sandbox}
-            style={{ height: 520 }}
-            referrerPolicy="no-referrer"
-            loading="lazy"
-          />
-        </div>
+        <PreviewFrame
+          lang={lang}
+          frameKey={site.currentVersionId ?? "current"}
+          src={previewSrc}
+          title={site.title}
+          // No allow-same-origin without a preview origin: the document runs in an
+          // opaque origin and cannot reach this page's cookies or the API.
+          sandbox={sandbox}
+          height={520}
+          lazy
+        />
         <p className="muted" style={{ fontSize: 12, margin: "8px 0 0" }}>
           {t(lang, "widthNote")}
         </p>
